@@ -13,6 +13,7 @@ defmodule DayStructWeb.BoardLive do
     {:ok,
      socket
      |> assign(:page_title, "Board")
+     |> assign(:active_tab, :board)
      |> assign(:areas, areas)
      |> assign(:tasks, state.tasks)
      |> assign(:inbox_count, length(state.inbox_items))}
@@ -69,18 +70,7 @@ defmodule DayStructWeb.BoardLive do
   def render(assigns) do
     ~H"""
     <div class="space-y-6">
-      <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-bold">Board</h1>
-        <div class="flex gap-2">
-          <.link navigate={~p"/inbox"} class="btn btn-outline btn-sm">
-            <.icon name="hero-inbox" class="size-4" /> Inbox
-            <span :if={@inbox_count > 0} class="badge badge-sm badge-primary">{@inbox_count}</span>
-          </.link>
-          <.link navigate={~p"/day"} class="btn btn-primary btn-sm">
-            <.icon name="hero-calendar" class="size-4" /> Today
-          </.link>
-        </div>
-      </div>
+      <h1 class="text-2xl font-bold">Board</h1>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <.link

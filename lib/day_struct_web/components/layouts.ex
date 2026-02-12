@@ -5,39 +5,71 @@ defmodule DayStructWeb.Layouts do
 
   attr :flash, :map, required: true
   attr :current_scope, :map, default: nil
-  slot :inner_block, required: true
+  attr :active_tab, :any, default: nil
+  attr :areas, :list, default: []
+  attr :inbox_count, :integer, default: 0
+  attr :inner_content, :any, default: nil
 
   def app(assigns) do
     ~H"""
     <div class="min-h-screen bg-base-100">
-      <header class="navbar bg-base-200 border-b border-base-300 px-4 sm:px-6">
-        <div class="flex-1">
-          <.link navigate={~p"/"} class="flex items-center gap-2 font-bold text-lg">
-            <span class="text-primary">Day</span><span>Struct</span>
+      <header class="bg-base-200 border-b border-base-300">
+        <div class="navbar px-4 sm:px-6">
+          <div class="flex-1">
+            <.link navigate={~p"/"} class="flex items-center gap-2 font-bold text-lg">
+              <span class="text-primary">Day</span><span>Struct</span>
+            </.link>
+          </div>
+          <nav class="flex-none">
+            <ul class="flex items-center gap-1">
+              <li>
+                <.link
+                  navigate={~p"/"}
+                  class={"btn btn-ghost btn-sm #{if @active_tab == :board, do: "btn-active"}"}
+                >
+                  <.icon name="hero-squares-2x2" class="size-4" /> Board
+                </.link>
+              </li>
+              <li>
+                <.link
+                  navigate={~p"/inbox"}
+                  class={"btn btn-ghost btn-sm #{if @active_tab == :inbox, do: "btn-active"}"}
+                >
+                  <.icon name="hero-inbox" class="size-4" /> Inbox
+                  <span
+                    :if={@inbox_count > 0}
+                    class="badge badge-xs badge-primary"
+                  >
+                    {@inbox_count}
+                  </span>
+                </.link>
+              </li>
+              <li>
+                <.link
+                  navigate={~p"/day"}
+                  class={"btn btn-ghost btn-sm #{if @active_tab == :today, do: "btn-active"}"}
+                >
+                  <.icon name="hero-calendar" class="size-4" /> Today
+                </.link>
+              </li>
+              <li>
+                <.theme_toggle />
+              </li>
+            </ul>
+          </nav>
+        </div>
+
+        <div :if={@areas != []} class="px-4 sm:px-6 pb-2 flex items-center gap-2 overflow-x-auto">
+          <span class="text-xs text-base-content/40 font-medium shrink-0">Areas</span>
+          <.link
+            :for={area <- @areas}
+            navigate={~p"/area/#{area.id}"}
+            class={area_pill_class(area, @active_tab)}
+          >
+            <span class={area_dot_class(area.color)}></span>
+            {area.name}
           </.link>
         </div>
-        <nav class="flex-none">
-          <ul class="flex items-center gap-1">
-            <li>
-              <.link navigate={~p"/"} class="btn btn-ghost btn-sm">
-                <.icon name="hero-squares-2x2" class="size-4" /> Board
-              </.link>
-            </li>
-            <li>
-              <.link navigate={~p"/inbox"} class="btn btn-ghost btn-sm">
-                <.icon name="hero-inbox" class="size-4" /> Inbox
-              </.link>
-            </li>
-            <li>
-              <.link navigate={~p"/day"} class="btn btn-ghost btn-sm">
-                <.icon name="hero-calendar" class="size-4" /> Today
-              </.link>
-            </li>
-            <li>
-              <.theme_toggle />
-            </li>
-          </ul>
-        </nav>
       </header>
 
       <%!-- Quick capture modal (Cmd+K) --%>
@@ -62,7 +94,7 @@ defmodule DayStructWeb.Layouts do
 
       <main class="px-4 py-6 sm:px-6 lg:px-8">
         <div class="mx-auto max-w-6xl">
-          {render_slot(@inner_block)}
+          {@inner_content}
         </div>
       </main>
 
@@ -105,6 +137,48 @@ defmodule DayStructWeb.Layouts do
       </.flash>
     </div>
     """
+  end
+
+  defp area_pill_class(area, active_tab) do
+    active? =
+      case active_tab do
+        {:area, id} -> id == area.id
+        _ -> false
+      end
+
+    base =
+      "inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full shrink-0 transition-colors"
+
+    if active? do
+      "#{base} #{area_pill_active_bg(area.color)}"
+    else
+      "#{base} hover:bg-base-300"
+    end
+  end
+
+  defp area_pill_active_bg(color) do
+    case color do
+      "blue" -> "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+      "green" -> "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+      "rose" -> "bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200"
+      "amber" -> "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+      _ -> "bg-base-300"
+    end
+  end
+
+  defp area_dot_class(color) do
+    base = "inline-block w-2 h-2 rounded-full"
+
+    color_class =
+      case color do
+        "blue" -> "bg-blue-400"
+        "green" -> "bg-green-400"
+        "rose" -> "bg-rose-400"
+        "amber" -> "bg-amber-400"
+        _ -> "bg-base-content/30"
+      end
+
+    "#{base} #{color_class}"
   end
 
   def theme_toggle(assigns) do

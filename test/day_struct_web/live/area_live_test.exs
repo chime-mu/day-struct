@@ -20,7 +20,7 @@ defmodule DayStructWeb.AreaLiveTest do
     {:ok, view, _html} = live(conn, ~p"/area/#{area.id}")
 
     view
-    |> form("form", %{title: "New area task"})
+    |> form(~s{form[phx-submit="create_task"]}, %{title: "New area task"})
     |> render_submit()
 
     html = render(view)

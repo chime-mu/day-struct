@@ -20,7 +20,7 @@ defmodule DayStructWeb.InboxLiveTest do
     {:ok, view, _html} = live(conn, ~p"/inbox")
 
     view
-    |> form("form", %{text: "New thought"})
+    |> form(~s{form[phx-submit="capture"]}, %{text: "New thought"})
     |> render_submit()
 
     html = render(view)

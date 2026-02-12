@@ -14,15 +14,19 @@ defmodule DayStructWeb.AreaLive do
     if area do
       tasks = Enum.filter(state.tasks, &(&1.area_id == area_id))
       all_tasks = state.tasks
+      areas = Enum.sort_by(state.areas, & &1.position)
       projects = Enum.filter(state.projects, &(&1.area_id == area_id && &1.status == "active"))
 
       {:ok,
        socket
        |> assign(:page_title, area.name)
+       |> assign(:active_tab, {:area, area.id})
        |> assign(:area, area)
+       |> assign(:areas, areas)
        |> assign(:tasks, tasks)
        |> assign(:all_tasks, all_tasks)
        |> assign(:projects, projects)
+       |> assign(:inbox_count, length(state.inbox_items))
        |> assign(:editing_task, nil)
        |> assign(:new_task_title, "")
        |> assign(:show_done, false)}
@@ -128,7 +132,9 @@ defmodule DayStructWeb.AreaLive do
      socket
      |> assign(:tasks, tasks)
      |> assign(:all_tasks, state.tasks)
+     |> assign(:areas, Enum.sort_by(state.areas, & &1.position))
      |> assign(:projects, projects)
+     |> assign(:inbox_count, length(state.inbox_items))
      |> assign(:editing_task, editing)}
   end
 
@@ -177,12 +183,7 @@ defmodule DayStructWeb.AreaLive do
     ~H"""
     <div class="space-y-4">
       <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <.link navigate={~p"/"} class="btn btn-ghost btn-sm">
-            <.icon name="hero-arrow-left" class="size-4" />
-          </.link>
-          <h1 class="text-2xl font-bold">{@area.name}</h1>
-        </div>
+        <h1 class="text-2xl font-bold">{@area.name}</h1>
         <div class="flex gap-2">
           <label class="label cursor-pointer gap-2">
             <span class="text-sm">Show done</span>

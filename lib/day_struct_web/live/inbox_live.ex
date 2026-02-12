@@ -15,6 +15,8 @@ defmodule DayStructWeb.InboxLive do
     {:ok,
      socket
      |> assign(:page_title, "Inbox")
+     |> assign(:active_tab, :inbox)
+     |> assign(:inbox_count, length(items))
      |> assign(:areas, areas)
      |> assign(:items, items)
      |> assign(:projects, projects)
@@ -183,6 +185,7 @@ defmodule DayStructWeb.InboxLive do
     {:noreply,
      socket
      |> assign(:items, state.inbox_items)
+     |> assign(:inbox_count, length(state.inbox_items))
      |> assign(:areas, Enum.sort_by(state.areas, & &1.position))
      |> assign(:projects, state.projects)}
   end
@@ -193,17 +196,12 @@ defmodule DayStructWeb.InboxLive do
     <div class="space-y-6">
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-bold">Inbox</h1>
-        <div class="flex gap-2">
-          <button
-            phx-click="toggle_bulk"
-            class={"btn btn-sm #{if @bulk_mode, do: "btn-active", else: "btn-ghost"}"}
-          >
-            <.icon name="hero-document-text" class="size-4" /> Bulk Import
-          </button>
-          <.link navigate={~p"/"} class="btn btn-ghost btn-sm">
-            <.icon name="hero-arrow-left" class="size-4" /> Board
-          </.link>
-        </div>
+        <button
+          phx-click="toggle_bulk"
+          class={"btn btn-sm #{if @bulk_mode, do: "btn-active", else: "btn-ghost"}"}
+        >
+          <.icon name="hero-document-text" class="size-4" /> Bulk Import
+        </button>
       </div>
 
       <%!-- Bulk import section --%>

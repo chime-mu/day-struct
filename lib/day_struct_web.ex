@@ -50,7 +50,7 @@ defmodule DayStructWeb do
 
   def live_view do
     quote do
-      use Phoenix.LiveView
+      use Phoenix.LiveView, layout: {DayStructWeb.Layouts, :app}
 
       unquote(html_helpers())
     end

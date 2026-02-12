@@ -36,12 +36,14 @@ defmodule DayStructWeb.DayPlanLive do
     socket =
       socket
       |> assign(:page_title, "Day Plan — #{date}")
+      |> assign(:active_tab, :today)
       |> assign(:date, date)
       |> assign(:plan, plan)
       |> assign(:all_tasks, state.tasks)
       |> assign(:available_tasks, available_tasks)
       |> assign(:areas, areas)
       |> assign(:areas_map, areas_map)
+      |> assign(:inbox_count, length(state.inbox_items))
       |> assign(:day_start, @day_start)
       |> assign(:day_end, @day_end)
       |> assign(:pixels_per_minute, @pixels_per_minute)
@@ -139,7 +141,9 @@ defmodule DayStructWeb.DayPlanLive do
      |> assign(:plan, plan)
      |> assign(:all_tasks, state.tasks)
      |> assign(:available_tasks, available_tasks)
-     |> assign(:areas_map, areas_map)}
+     |> assign(:areas, Enum.sort_by(state.areas, & &1.position))
+     |> assign(:areas_map, areas_map)
+     |> assign(:inbox_count, length(state.inbox_items))}
   end
 
   def handle_info(:tick, socket) do
@@ -236,12 +240,7 @@ defmodule DayStructWeb.DayPlanLive do
     ~H"""
     <div class="space-y-4">
       <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <.link navigate={~p"/"} class="btn btn-ghost btn-sm">
-            <.icon name="hero-arrow-left" class="size-4" />
-          </.link>
-          <h1 class="text-2xl font-bold">Day Plan</h1>
-        </div>
+        <h1 class="text-2xl font-bold">Day Plan</h1>
         <div class="flex items-center gap-2">
           <button phx-click="prev_day" class="btn btn-ghost btn-sm">
             <.icon name="hero-chevron-left" class="size-4" />
@@ -287,9 +286,13 @@ defmodule DayStructWeb.DayPlanLive do
             ]}
           >
             <div class="font-medium truncate">{task.title}</div>
-            <div class="text-xs text-base-content/50 mt-0.5">
-              {area_for_task(task, @areas_map) && area_for_task(task, @areas_map).name}
-            </div>
+            <.link
+              :if={area_for_task(task, @areas_map)}
+              navigate={~p"/area/#{area_for_task(task, @areas_map).id}"}
+              class="text-xs text-base-content/50 mt-0.5 hover:text-primary hover:underline"
+            >
+              {area_for_task(task, @areas_map).name}
+            </.link>
           </div>
         </div>
 
