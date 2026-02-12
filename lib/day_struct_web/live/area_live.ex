@@ -41,11 +41,16 @@ defmodule DayStructWeb.AreaLive do
   end
 
   def handle_event("create_task", %{"title" => title}, socket) when title != "" do
+    x = Float.round(0.55 + :rand.uniform() * 0.40, 4)
+    y = Float.round(0.55 + :rand.uniform() * 0.40, 4)
+
     {:ok, _task} =
       Store.create_task(
         title: String.trim(title),
         area_id: socket.assigns.area.id,
-        status: "ready"
+        status: "ready",
+        x: x,
+        y: y
       )
 
     {:noreply, assign(socket, :new_task_title, "")}
@@ -229,6 +234,15 @@ defmodule DayStructWeb.AreaLive do
             today
           </span>
           <div class="flex-1 border-t border-dashed border-base-content/15"></div>
+        </div>
+
+        <div
+          class="absolute pointer-events-none border border-base-content/10 rounded"
+          style="left: 50%; top: 50%; width: 50%; height: 50%;"
+        >
+          <span class="absolute top-1 left-2 text-[10px] text-base-content/20 select-none uppercase tracking-widest">
+            new tasks
+          </span>
         </div>
 
         <div
