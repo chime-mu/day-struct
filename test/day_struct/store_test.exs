@@ -171,6 +171,96 @@ defmodule DayStruct.StoreTest do
     end
   end
 
+  describe "dependency project constraints" do
+    setup do
+      [area | _] = Store.get_areas()
+      {:ok, project_a} = Store.create_project(name: "Project A", area_id: area.id)
+      {:ok, project_b} = Store.create_project(name: "Project B", area_id: area.id)
+
+      {:ok, task1} =
+        Store.create_task(title: "Task 1", area_id: area.id, project_id: project_a.id)
+
+      {:ok, task2} =
+        Store.create_task(title: "Task 2", area_id: area.id, project_id: project_a.id)
+
+      {:ok, task3} =
+        Store.create_task(title: "Task 3", area_id: area.id, project_id: project_b.id)
+
+      {:ok, task_no_project} = Store.create_task(title: "No Project", area_id: area.id)
+
+      %{
+        area: area,
+        project_a: project_a,
+        project_b: project_b,
+        task1: task1,
+        task2: task2,
+        task3: task3,
+        task_no_project: task_no_project
+      }
+    end
+
+    test "allows dependencies within the same project", %{task1: task1, task2: task2} do
+      {:ok, updated} = Store.update_task(task1.id, depends_on: [task2.id])
+      assert updated.depends_on == [task2.id]
+    end
+
+    test "rejects cross-project dependencies", %{task1: task1, task3: task3} do
+      {:ok, updated} = Store.update_task(task1.id, depends_on: [task3.id])
+      assert updated.depends_on == []
+    end
+
+    test "filters out cross-project deps while keeping valid ones", %{
+      task1: task1,
+      task2: task2,
+      task3: task3
+    } do
+      {:ok, updated} = Store.update_task(task1.id, depends_on: [task2.id, task3.id])
+      assert updated.depends_on == [task2.id]
+    end
+
+    test "rejects dependencies for tasks without a project", %{
+      task_no_project: task_no_project,
+      task1: task1
+    } do
+      {:ok, updated} = Store.update_task(task_no_project.id, depends_on: [task1.id])
+      assert updated.depends_on == []
+    end
+
+    test "clears depends_on when project_id changes", %{
+      task1: task1,
+      task2: task2,
+      project_b: project_b
+    } do
+      {:ok, _} = Store.update_task(task1.id, depends_on: [task2.id])
+      assert Store.get_task(task1.id).depends_on == [task2.id]
+
+      {:ok, updated} = Store.update_task(task1.id, project_id: project_b.id)
+      assert updated.depends_on == []
+    end
+
+    test "clears depends_on when project_id is set to nil", %{task1: task1, task2: task2} do
+      {:ok, _} = Store.update_task(task1.id, depends_on: [task2.id])
+
+      {:ok, updated} = Store.update_task(task1.id, project_id: nil)
+      assert updated.depends_on == []
+    end
+
+    test "removes task from other tasks' depends_on when project changes", %{
+      task1: task1,
+      task2: task2,
+      project_b: project_b
+    } do
+      {:ok, _} = Store.update_task(task2.id, depends_on: [task1.id])
+      assert Store.get_task(task2.id).depends_on == [task1.id]
+
+      # Move task1 to a different project
+      {:ok, _} = Store.update_task(task1.id, project_id: project_b.id)
+
+      # task2 should no longer depend on task1
+      assert Store.get_task(task2.id).depends_on == []
+    end
+  end
+
   describe "PubSub broadcasts" do
     test "mutations broadcast state_updated" do
       Store.subscribe()

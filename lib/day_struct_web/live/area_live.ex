@@ -157,9 +157,14 @@ defmodule DayStructWeb.AreaLive do
     end
   end
 
-  defp other_tasks_for_deps(all_tasks, current_task_id) do
+  defp other_tasks_for_deps(_all_tasks, _current_task_id, nil), do: []
+
+  defp other_tasks_for_deps(all_tasks, current_task_id, project_id) do
     all_tasks
-    |> Enum.filter(&(&1.id != current_task_id && &1.status not in ["done", "dropped"]))
+    |> Enum.filter(
+      &(&1.id != current_task_id && &1.status not in ["done", "dropped"] &&
+          &1.project_id == project_id)
+    )
   end
 
   @impl true
@@ -299,22 +304,31 @@ defmodule DayStructWeb.AreaLive do
           <%!-- Dependencies --%>
           <div class="space-y-1">
             <label class="label text-xs">Dependencies (select tasks this depends on)</label>
-            <div class="flex flex-wrap gap-1">
-              <label
-                :for={t <- other_tasks_for_deps(@all_tasks, @editing_task.id)}
-                class="flex items-center gap-1 text-xs bg-base-100 rounded px-2 py-1 cursor-pointer hover:bg-base-300"
-              >
-                <input
-                  type="checkbox"
-                  name="depends_on[]"
-                  value={t.id}
-                  checked={t.id in (@editing_task.depends_on || [])}
-                  class="checkbox checkbox-xs"
-                />
-                {t.title}
-              </label>
-            </div>
-            <input type="hidden" name="depends_on[]" value="" />
+            <%= if is_nil(@editing_task.project_id) do %>
+              <p class="text-xs text-base-content/50 italic">
+                Assign a project to enable dependencies
+              </p>
+              <input type="hidden" name="depends_on[]" value="" />
+            <% else %>
+              <div class="flex flex-wrap gap-1">
+                <label
+                  :for={
+                    t <- other_tasks_for_deps(@all_tasks, @editing_task.id, @editing_task.project_id)
+                  }
+                  class="flex items-center gap-1 text-xs bg-base-100 rounded px-2 py-1 cursor-pointer hover:bg-base-300"
+                >
+                  <input
+                    type="checkbox"
+                    name="depends_on[]"
+                    value={t.id}
+                    checked={t.id in (@editing_task.depends_on || [])}
+                    class="checkbox checkbox-xs"
+                  />
+                  {t.title}
+                </label>
+              </div>
+              <input type="hidden" name="depends_on[]" value="" />
+            <% end %>
           </div>
 
           <div class="flex gap-2">

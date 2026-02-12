@@ -180,24 +180,55 @@ defmodule DayStruct.Store do
 
   def handle_call({:update_task, id, attrs}, _from, %{state: state} = s) do
     now = DateTime.utc_now() |> DateTime.to_iso8601()
+    old_task = Enum.find(state.tasks, &(&1.id == id))
+
+    project_changing? =
+      old_task && Keyword.has_key?(attrs, :project_id) &&
+        attrs[:project_id] != old_task.project_id
 
     new_tasks =
       Enum.map(state.tasks, fn task ->
         if task.id == id do
-          task
-          |> maybe_put(:title, attrs[:title])
-          |> maybe_put(:description, attrs[:description])
-          |> maybe_put(:area_id, attrs[:area_id])
-          |> maybe_put(:status, attrs[:status])
-          |> maybe_put(:depends_on, attrs[:depends_on])
-          |> maybe_put_if_key(attrs, :project_id)
-          |> maybe_put(:x, attrs[:x])
-          |> maybe_put(:y, attrs[:y])
-          |> Map.put(:updated_at, now)
+          updated =
+            task
+            |> maybe_put(:title, attrs[:title])
+            |> maybe_put(:description, attrs[:description])
+            |> maybe_put(:area_id, attrs[:area_id])
+            |> maybe_put(:status, attrs[:status])
+            |> maybe_put(:depends_on, attrs[:depends_on])
+            |> maybe_put_if_key(attrs, :project_id)
+            |> maybe_put(:x, attrs[:x])
+            |> maybe_put(:y, attrs[:y])
+            |> Map.put(:updated_at, now)
+
+          # Clear deps when project changes
+          updated =
+            if project_changing? do
+              %{updated | depends_on: []}
+            else
+              updated
+            end
+
+          # Filter out cross-project dependencies
+          validate_depends_on(updated, state.tasks)
         else
           task
         end
       end)
+
+    # If project changed, remove this task from other tasks' depends_on lists
+    new_tasks =
+      if project_changing? do
+        Enum.map(new_tasks, fn task ->
+          if task.id != id && id in task.depends_on do
+            %{task | depends_on: List.delete(task.depends_on, id)}
+          else
+            task
+          end
+        end)
+      else
+        new_tasks
+      end
 
     new_state = %{state | tasks: new_tasks}
     task = Enum.find(new_state.tasks, &(&1.id == id))
@@ -444,6 +475,19 @@ defmodule DayStruct.Store do
 
       %{state | tasks: new_tasks}
     end
+  end
+
+  defp validate_depends_on(%{project_id: nil} = task, _all_tasks) do
+    %{task | depends_on: []}
+  end
+
+  defp validate_depends_on(task, all_tasks) do
+    valid_ids =
+      all_tasks
+      |> Enum.filter(&(&1.id != task.id && &1.project_id == task.project_id))
+      |> MapSet.new(& &1.id)
+
+    %{task | depends_on: Enum.filter(task.depends_on, &(&1 in valid_ids))}
   end
 
   defp maybe_put(struct, _key, nil), do: struct
