@@ -139,15 +139,21 @@ defmodule DayStruct.StoreTest do
     end
 
     test "add_time_block marks task as active", %{task: task, date: date} do
-      {:ok, block} = Store.add_time_block(date, task_id: task.id, start_minute: 480, duration_minutes: 60)
+      {:ok, block} =
+        Store.add_time_block(date, task_id: task.id, start_minute: 480, duration_minutes: 60)
+
       assert block.task_id == task.id
 
       updated_task = Store.get_task(task.id)
       assert updated_task.status == "active"
     end
 
-    test "complete_time_block marks task as done when all blocks complete", %{task: task, date: date} do
-      {:ok, block} = Store.add_time_block(date, task_id: task.id, start_minute: 480, duration_minutes: 60)
+    test "complete_time_block marks task as done when all blocks complete", %{
+      task: task,
+      date: date
+    } do
+      {:ok, block} =
+        Store.add_time_block(date, task_id: task.id, start_minute: 480, duration_minutes: 60)
 
       Store.complete_time_block(date, block.id)
       updated_task = Store.get_task(task.id)
@@ -155,7 +161,9 @@ defmodule DayStruct.StoreTest do
     end
 
     test "remove_time_block reverts task to ready", %{task: task, date: date} do
-      {:ok, block} = Store.add_time_block(date, task_id: task.id, start_minute: 480, duration_minutes: 60)
+      {:ok, block} =
+        Store.add_time_block(date, task_id: task.id, start_minute: 480, duration_minutes: 60)
+
       assert Store.get_task(task.id).status == "active"
 
       Store.remove_time_block(date, block.id)

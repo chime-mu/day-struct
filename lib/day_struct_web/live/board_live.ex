@@ -73,13 +73,11 @@ defmodule DayStructWeb.BoardLive do
         <h1 class="text-2xl font-bold">Board</h1>
         <div class="flex gap-2">
           <.link navigate={~p"/inbox"} class="btn btn-outline btn-sm">
-            <.icon name="hero-inbox" class="size-4" />
-            Inbox
+            <.icon name="hero-inbox" class="size-4" /> Inbox
             <span :if={@inbox_count > 0} class="badge badge-sm badge-primary">{@inbox_count}</span>
           </.link>
           <.link navigate={~p"/day"} class="btn btn-primary btn-sm">
-            <.icon name="hero-calendar" class="size-4" />
-            Today
+            <.icon name="hero-calendar" class="size-4" /> Today
           </.link>
         </div>
       </div>

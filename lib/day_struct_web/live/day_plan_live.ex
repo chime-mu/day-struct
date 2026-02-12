@@ -55,19 +55,38 @@ defmodule DayStructWeb.DayPlanLive do
   end
 
   @impl true
-  def handle_event("schedule_task", %{"task_id" => task_id, "start_minute" => start_minute}, socket) do
+  def handle_event(
+        "schedule_task",
+        %{"task_id" => task_id, "start_minute" => start_minute},
+        socket
+      ) do
     start = if is_binary(start_minute), do: String.to_integer(start_minute), else: start_minute
-    {:ok, _block} = Store.add_time_block(socket.assigns.date, task_id: task_id, start_minute: start, duration_minutes: 60)
+
+    {:ok, _block} =
+      Store.add_time_block(socket.assigns.date,
+        task_id: task_id,
+        start_minute: start,
+        duration_minutes: 60
+      )
+
     {:noreply, socket}
   end
 
-  def handle_event("move_block", %{"block_id" => block_id, "start_minute" => start_minute}, socket) do
+  def handle_event(
+        "move_block",
+        %{"block_id" => block_id, "start_minute" => start_minute},
+        socket
+      ) do
     start = if is_binary(start_minute), do: String.to_integer(start_minute), else: start_minute
     Store.update_time_block(socket.assigns.date, block_id, start_minute: start)
     {:noreply, socket}
   end
 
-  def handle_event("resize_block", %{"block_id" => block_id, "duration_minutes" => duration}, socket) do
+  def handle_event(
+        "resize_block",
+        %{"block_id" => block_id, "duration_minutes" => duration},
+        socket
+      ) do
     dur = if is_binary(duration), do: String.to_integer(duration), else: duration
     dur = max(dur, 15)
     Store.update_time_block(socket.assigns.date, block_id, duration_minutes: dur)
@@ -142,12 +161,23 @@ defmodule DayStructWeb.DayPlanLive do
     area = area_for_task(task, areas_map)
 
     cond do
-      block.completed -> "bg-green-100 border-green-400 dark:bg-green-950/40 dark:border-green-600"
-      area && area.color == "blue" -> "bg-blue-100 border-blue-400 dark:bg-blue-950/40 dark:border-blue-600"
-      area && area.color == "green" -> "bg-green-100 border-green-400 dark:bg-green-950/40 dark:border-green-600"
-      area && area.color == "rose" -> "bg-rose-100 border-rose-400 dark:bg-rose-950/40 dark:border-rose-600"
-      area && area.color == "amber" -> "bg-amber-100 border-amber-400 dark:bg-amber-950/40 dark:border-amber-600"
-      true -> "bg-base-200 border-base-300"
+      block.completed ->
+        "bg-green-100 border-green-400 dark:bg-green-950/40 dark:border-green-600"
+
+      area && area.color == "blue" ->
+        "bg-blue-100 border-blue-400 dark:bg-blue-950/40 dark:border-blue-600"
+
+      area && area.color == "green" ->
+        "bg-green-100 border-green-400 dark:bg-green-950/40 dark:border-green-600"
+
+      area && area.color == "rose" ->
+        "bg-rose-100 border-rose-400 dark:bg-rose-950/40 dark:border-rose-600"
+
+      area && area.color == "amber" ->
+        "bg-amber-100 border-amber-400 dark:bg-amber-950/40 dark:border-amber-600"
+
+      true ->
+        "bg-base-200 border-base-300"
     end
   end
 
@@ -228,13 +258,17 @@ defmodule DayStructWeb.DayPlanLive do
       <div class="flex gap-4" style="min-height: 70vh;">
         <%!-- Sidebar: available tasks --%>
         <div class="w-56 shrink-0 space-y-2">
-          <h3 class="text-sm font-semibold text-base-content/60 uppercase tracking-wide">Available Tasks</h3>
+          <h3 class="text-sm font-semibold text-base-content/60 uppercase tracking-wide">
+            Available Tasks
+          </h3>
           <div :if={@available_tasks == []} class="text-center py-8 space-y-3">
             <.icon name="hero-clipboard-document-list" class="size-10 mx-auto text-base-content/20" />
             <p class="text-sm text-base-content/40">No tasks to schedule</p>
             <p class="text-xs text-base-content/30">
               Create tasks on the
-              <.link navigate={~p"/"} class="underline text-primary/60 hover:text-primary">Board</.link>
+              <.link navigate={~p"/"} class="underline text-primary/60 hover:text-primary">
+                Board
+              </.link>
               first
             </p>
           </div>
@@ -247,7 +281,9 @@ defmodule DayStructWeb.DayPlanLive do
               "sidebar-task cursor-grab active:cursor-grabbing",
               "rounded border-l-4 bg-base-100 border border-base-300 px-3 py-2 text-sm shadow-sm",
               "hover:shadow-md transition-shadow",
-              sidebar_area_color(area_for_task(task, @areas_map) && area_for_task(task, @areas_map).color)
+              sidebar_area_color(
+                area_for_task(task, @areas_map) && area_for_task(task, @areas_map).color
+              )
             ]}
           >
             <div class="font-medium truncate">{task.title}</div>
@@ -266,7 +302,10 @@ defmodule DayStructWeb.DayPlanLive do
           data-day-end={@day_end}
           data-ppm={@pixels_per_minute}
         >
-          <div class="relative" style={"height: #{timeline_height(@day_start, @day_end, @pixels_per_minute)}px;"}>
+          <div
+            class="relative"
+            style={"height: #{timeline_height(@day_start, @day_end, @pixels_per_minute)}px;"}
+          >
             <%!-- Hour lines --%>
             <div
               :for={minute <- hour_marks(@day_start, @day_end)}
@@ -328,10 +367,13 @@ defmodule DayStructWeb.DayPlanLive do
               <div class="flex items-start justify-between gap-1 min-h-0">
                 <div class="truncate">
                   <div class="font-medium text-sm truncate">
-                    {task_for_block(block, @all_tasks) && task_for_block(block, @all_tasks).title || "Unknown task"}
+                    {(task_for_block(block, @all_tasks) && task_for_block(block, @all_tasks).title) ||
+                      "Unknown task"}
                   </div>
                   <div class="text-xs text-base-content/50">
-                    {TimeBlock.format_time(block.start_minute)} - {TimeBlock.format_time(TimeBlock.end_minute(block))}
+                    {TimeBlock.format_time(block.start_minute)} - {TimeBlock.format_time(
+                      TimeBlock.end_minute(block)
+                    )}
                   </div>
                 </div>
                 <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">

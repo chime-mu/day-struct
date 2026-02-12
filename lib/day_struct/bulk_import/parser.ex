@@ -111,13 +111,16 @@ defmodule DayStruct.BulkImport.Parser do
   # Formatting
 
   defp format_item(nil, main_line, []), do: main_line
+
   defp format_item(nil, main_line, sub_lines) do
     ([main_line] ++ Enum.map(sub_lines, &("  " <> &1)))
     |> Enum.join("\n")
   end
+
   defp format_item(context, main_line, []) do
     "[#{context}] #{main_line}"
   end
+
   defp format_item(context, main_line, sub_lines) do
     (["[#{context}] #{main_line}"] ++ Enum.map(sub_lines, &("  " <> &1)))
     |> Enum.join("\n")

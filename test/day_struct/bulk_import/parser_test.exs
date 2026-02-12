@@ -157,7 +157,8 @@ defmodule DayStruct.BulkImport.ParserTest do
     end
 
     test "handles combined markup" do
-      assert Parser.strip_markup("- TODO [[project]] task **important**") == "project task important"
+      assert Parser.strip_markup("- TODO [[project]] task **important**") ==
+               "project task important"
     end
   end
 
@@ -178,7 +179,9 @@ defmodule DayStruct.BulkImport.ParserTest do
       items = Parser.parse(input)
       assert length(items) == 4
 
-      assert Enum.at(items, 0).text == "[Early morning] Ring til Norwegian embassy\n  Ask about passport renewal\n  Bring documents"
+      assert Enum.at(items, 0).text ==
+               "[Early morning] Ring til Norwegian embassy\n  Ask about passport renewal\n  Bring documents"
+
       assert Enum.at(items, 0).context == "Early morning"
 
       assert Enum.at(items, 1).text == "[Early morning] Check flight prices"
