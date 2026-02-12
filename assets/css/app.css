@@ -106,6 +106,7 @@
 
 /* Task cards in spatial pane - smooth transitions except during drag */
 .task-card {
+  z-index: 1;
   transition: box-shadow 0.15s ease;
 }
 

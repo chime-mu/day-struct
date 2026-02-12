@@ -216,6 +216,17 @@ defmodule DayStructWeb.AreaLive do
         </div>
 
         <div
+          class="absolute inset-x-0 pointer-events-none flex items-center"
+          style={"top: #{Task.today_line_y() * 100}%;"}
+        >
+          <div class="flex-1 border-t border-dashed border-base-content/15"></div>
+          <span class="text-[10px] text-base-content/20 px-2 select-none uppercase tracking-widest">
+            today
+          </span>
+          <div class="flex-1 border-t border-dashed border-base-content/15"></div>
+        </div>
+
+        <div
           :for={task <- visible_tasks(@tasks, @show_done)}
           id={"task-#{task.id}"}
           data-task-id={task.id}

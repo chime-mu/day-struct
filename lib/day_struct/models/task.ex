@@ -1,5 +1,9 @@
 defmodule DayStruct.Models.Task do
   @derive Jason.Encoder
+
+  @today_line_y 0.33
+  def today_line_y, do: @today_line_y
+
   defstruct [
     :id,
     :title,
@@ -59,7 +63,8 @@ defmodule DayStruct.Models.Task do
 
   def blocked?(_task, _all_tasks), do: false
 
-  def schedulable?(%__MODULE__{status: status} = task, all_tasks) do
-    status in ["ready", "active"] and not blocked?(task, all_tasks)
+  def schedulable?(%__MODULE__{status: status, y: y} = task, all_tasks) do
+    status in ["ready", "active"] and not blocked?(task, all_tasks) and
+      (y || 1.0) <= @today_line_y
   end
 end

@@ -25,7 +25,7 @@ defmodule DayStructWeb.DayPlanLiveTest do
 
   test "shows available tasks in sidebar", %{conn: conn} do
     [area | _] = Store.get_areas()
-    Store.create_task(title: "Ready task", area_id: area.id, status: "ready")
+    Store.create_task(title: "Ready task", area_id: area.id, status: "ready", y: 0.2)
 
     {:ok, _view, html} = live(conn, ~p"/day")
     assert html =~ "Ready task"

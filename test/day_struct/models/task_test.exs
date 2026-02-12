@@ -51,12 +51,12 @@ defmodule DayStruct.Models.TaskTest do
 
   describe "schedulable?/2" do
     test "ready and unblocked task is schedulable" do
-      task = Task.new(title: "T", area_id: "a", status: "ready")
+      task = Task.new(title: "T", area_id: "a", status: "ready", y: 0.2)
       assert Task.schedulable?(task, [task])
     end
 
     test "active and unblocked task is schedulable" do
-      task = Task.new(title: "T", area_id: "a", status: "active")
+      task = Task.new(title: "T", area_id: "a", status: "active", y: 0.2)
       assert Task.schedulable?(task, [task])
     end
 
@@ -72,8 +72,23 @@ defmodule DayStruct.Models.TaskTest do
 
     test "blocked task is not schedulable" do
       dep = Task.new(title: "Dep", area_id: "a", status: "ready")
-      task = Task.new(title: "T", area_id: "a", status: "ready", depends_on: [dep.id])
+      task = Task.new(title: "T", area_id: "a", status: "ready", y: 0.2, depends_on: [dep.id])
       refute Task.schedulable?(task, [dep, task])
+    end
+
+    test "task above today line is schedulable" do
+      task = Task.new(title: "T", area_id: "a", status: "ready", y: 0.2)
+      assert Task.schedulable?(task, [task])
+    end
+
+    test "task on today line is schedulable" do
+      task = Task.new(title: "T", area_id: "a", status: "ready", y: 0.33)
+      assert Task.schedulable?(task, [task])
+    end
+
+    test "task below today line is not schedulable" do
+      task = Task.new(title: "T", area_id: "a", status: "ready", y: 0.5)
+      refute Task.schedulable?(task, [task])
     end
   end
 end
