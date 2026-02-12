@@ -10,16 +10,20 @@ defmodule DayStructWeb.InboxLive do
 
     areas = Store.get_areas()
     items = Store.get_inbox_items()
+    projects = Store.get_projects()
 
     {:ok,
      socket
      |> assign(:page_title, "Inbox")
      |> assign(:areas, areas)
      |> assign(:items, items)
+     |> assign(:projects, projects)
      |> assign(:capture_text, "")
      |> assign(:processing_item, nil)
      |> assign(:process_title, "")
      |> assign(:process_area_id, nil)
+     |> assign(:process_project_id, nil)
+     |> assign(:new_project_name, "")
      |> assign(:bulk_mode, false)
      |> assign(:bulk_text, "")
      |> assign(:bulk_preview, [])}
@@ -40,7 +44,12 @@ defmodule DayStructWeb.InboxLive do
      socket
      |> assign(:processing_item, item)
      |> assign(:process_title, item.text)
-     |> assign(:process_area_id, List.first(socket.assigns.areas) && List.first(socket.assigns.areas).id)}
+     |> assign(
+       :process_area_id,
+       List.first(socket.assigns.areas) && List.first(socket.assigns.areas).id
+     )
+     |> assign(:process_project_id, nil)
+     |> assign(:new_project_name, "")}
   end
 
   def handle_event("cancel_process", _params, socket) do
@@ -48,20 +57,59 @@ defmodule DayStructWeb.InboxLive do
      socket
      |> assign(:processing_item, nil)
      |> assign(:process_title, "")
-     |> assign(:process_area_id, nil)}
+     |> assign(:process_area_id, nil)
+     |> assign(:process_project_id, nil)
+     |> assign(:new_project_name, "")}
   end
 
-  def handle_event("process", %{"title" => title, "area_id" => area_id}, socket) do
+  def handle_event("process_changed", params, socket) do
+    area_id = params["area_id"]
+    project_id = params["project_id"]
+
+    socket = assign(socket, :process_area_id, area_id)
+
+    # If area changed, reset project selection
+    socket =
+      if area_id != socket.assigns.process_area_id do
+        socket
+        |> assign(:process_project_id, nil)
+        |> assign(:new_project_name, "")
+      else
+        cond do
+          project_id == "__new__" ->
+            assign(socket, :process_project_id, "__new__")
+
+          project_id == "" || is_nil(project_id) ->
+            socket
+            |> assign(:process_project_id, nil)
+            |> assign(:new_project_name, "")
+
+          true ->
+            socket
+            |> assign(:process_project_id, project_id)
+            |> assign(:new_project_name, "")
+        end
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("process", %{"title" => title, "area_id" => area_id} = params, socket) do
     item = socket.assigns.processing_item
 
     if item && title != "" && area_id != "" do
-      {:ok, _task} = Store.process_inbox_item(item.id, area_id, String.trim(title))
+      project_id = resolve_project_id(params, area_id)
+
+      {:ok, _task} = Store.process_inbox_item(item.id, area_id, String.trim(title), project_id)
 
       {:noreply,
        socket
        |> assign(:processing_item, nil)
        |> assign(:process_title, "")
-       |> assign(:process_area_id, nil)}
+       |> assign(:process_area_id, nil)
+       |> assign(:process_project_id, nil)
+       |> assign(:new_project_name, "")
+       |> assign(:projects, Store.get_projects())}
     else
       {:noreply, socket}
     end
@@ -135,7 +183,8 @@ defmodule DayStructWeb.InboxLive do
     {:noreply,
      socket
      |> assign(:items, state.inbox_items)
-     |> assign(:areas, Enum.sort_by(state.areas, & &1.position))}
+     |> assign(:areas, Enum.sort_by(state.areas, & &1.position))
+     |> assign(:projects, state.projects)}
   end
 
   @impl true
@@ -145,7 +194,10 @@ defmodule DayStructWeb.InboxLive do
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-bold">Inbox</h1>
         <div class="flex gap-2">
-          <button phx-click="toggle_bulk" class={"btn btn-sm #{if @bulk_mode, do: "btn-active", else: "btn-ghost"}"}>
+          <button
+            phx-click="toggle_bulk"
+            class={"btn btn-sm #{if @bulk_mode, do: "btn-active", else: "btn-ghost"}"}
+          >
             <.icon name="hero-document-text" class="size-4" /> Bulk Import
           </button>
           <.link navigate={~p"/"} class="btn btn-ghost btn-sm">
@@ -226,7 +278,7 @@ defmodule DayStructWeb.InboxLive do
       <%!-- Processing modal --%>
       <div :if={@processing_item} class="card bg-base-200 p-4 space-y-3">
         <div class="text-sm text-base-content/60">Processing: "{@processing_item.text}"</div>
-        <form phx-submit="process" class="space-y-3">
+        <form phx-submit="process" phx-change="process_changed" class="space-y-3">
           <input
             type="text"
             name="title"
@@ -240,6 +292,27 @@ defmodule DayStructWeb.InboxLive do
               {area.name}
             </option>
           </select>
+          <select name="project_id" class="select select-bordered w-full">
+            <option value="" selected={is_nil(@process_project_id)}>None (no project)</option>
+            <option
+              :for={project <- area_projects(@projects, @process_area_id)}
+              value={project.id}
+              selected={project.id == @process_project_id}
+            >
+              {project.name}
+            </option>
+            <option value="__new__" selected={@process_project_id == "__new__"}>
+              + New project...
+            </option>
+          </select>
+          <input
+            :if={@process_project_id == "__new__"}
+            type="text"
+            name="new_project_name"
+            value={@new_project_name}
+            placeholder="Project name"
+            class="input input-bordered w-full input-sm"
+          />
           <div class="flex gap-2">
             <button type="submit" class="btn btn-primary btn-sm">Create Task</button>
             <button type="button" phx-click="cancel_process" class="btn btn-ghost btn-sm">
@@ -285,6 +358,20 @@ defmodule DayStructWeb.InboxLive do
       </div>
     </div>
     """
+  end
+
+  defp resolve_project_id(%{"project_id" => "__new__", "new_project_name" => name}, area_id)
+       when name != "" do
+    {:ok, project} = Store.create_project(name: String.trim(name), area_id: area_id)
+    project.id
+  end
+
+  defp resolve_project_id(%{"project_id" => ""}, _area_id), do: nil
+  defp resolve_project_id(%{"project_id" => id}, _area_id), do: id
+  defp resolve_project_id(_params, _area_id), do: nil
+
+  defp area_projects(projects, area_id) do
+    Enum.filter(projects, &(&1.area_id == area_id && &1.status == "active"))
   end
 
   defp format_time(iso_string) do

@@ -14,6 +14,7 @@ defmodule DayStructWeb.AreaLive do
     if area do
       tasks = Enum.filter(state.tasks, &(&1.area_id == area_id))
       all_tasks = state.tasks
+      projects = Enum.filter(state.projects, &(&1.area_id == area_id && &1.status == "active"))
 
       {:ok,
        socket
@@ -21,6 +22,7 @@ defmodule DayStructWeb.AreaLive do
        |> assign(:area, area)
        |> assign(:tasks, tasks)
        |> assign(:all_tasks, all_tasks)
+       |> assign(:projects, projects)
        |> assign(:editing_task, nil)
        |> assign(:new_task_title, "")
        |> assign(:show_done, false)}
@@ -69,12 +71,19 @@ defmodule DayStructWeb.AreaLive do
         |> List.wrap()
         |> Enum.reject(&(&1 == ""))
 
+      project_id =
+        case params["project_id"] do
+          "" -> nil
+          id -> id
+        end
+
       {:ok, _updated} =
         Store.update_task(task.id,
           title: params["title"],
           description: params["description"],
           status: params["status"],
-          depends_on: depends_on
+          depends_on: depends_on,
+          project_id: project_id
         )
 
       {:noreply, assign(socket, :editing_task, nil)}
@@ -103,6 +112,7 @@ defmodule DayStructWeb.AreaLive do
   def handle_info({:state_updated, state}, socket) do
     area_id = socket.assigns.area.id
     tasks = Enum.filter(state.tasks, &(&1.area_id == area_id))
+    projects = Enum.filter(state.projects, &(&1.area_id == area_id && &1.status == "active"))
 
     editing =
       if socket.assigns.editing_task do
@@ -113,6 +123,7 @@ defmodule DayStructWeb.AreaLive do
      socket
      |> assign(:tasks, tasks)
      |> assign(:all_tasks, state.tasks)
+     |> assign(:projects, projects)
      |> assign(:editing_task, editing)}
   end
 
@@ -165,7 +176,12 @@ defmodule DayStructWeb.AreaLive do
         <div class="flex gap-2">
           <label class="label cursor-pointer gap-2">
             <span class="text-sm">Show done</span>
-            <input type="checkbox" class="toggle toggle-sm" checked={@show_done} phx-click="toggle_done" />
+            <input
+              type="checkbox"
+              class="toggle toggle-sm"
+              checked={@show_done}
+              phx-click="toggle_done"
+            />
           </label>
         </div>
       </div>
@@ -235,11 +251,37 @@ defmodule DayStructWeb.AreaLive do
           </button>
         </div>
         <form phx-submit="save_task" class="space-y-3">
-          <input type="text" name="title" value={@editing_task.title} class="input input-bordered w-full input-sm" placeholder="Title" />
-          <textarea name="description" class="textarea textarea-bordered w-full textarea-sm" rows="2" placeholder="Description (optional)">{@editing_task.description}</textarea>
+          <input
+            type="text"
+            name="title"
+            value={@editing_task.title}
+            class="input input-bordered w-full input-sm"
+            placeholder="Title"
+          />
+          <textarea
+            name="description"
+            class="textarea textarea-bordered w-full textarea-sm"
+            rows="2"
+            placeholder="Description (optional)"
+          >{@editing_task.description}</textarea>
           <select name="status" class="select select-bordered select-sm w-full">
-            <option :for={s <- ["ready", "active", "done", "dropped"]} value={s} selected={s == @editing_task.status}>
+            <option
+              :for={s <- ["ready", "active", "done", "dropped"]}
+              value={s}
+              selected={s == @editing_task.status}
+            >
               {status_label(s)}
+            </option>
+          </select>
+
+          <select name="project_id" class="select select-bordered select-sm w-full">
+            <option value="" selected={is_nil(@editing_task.project_id)}>No project</option>
+            <option
+              :for={project <- @projects}
+              value={project.id}
+              selected={project.id == @editing_task.project_id}
+            >
+              {project.name}
             </option>
           </select>
 
@@ -266,7 +308,15 @@ defmodule DayStructWeb.AreaLive do
 
           <div class="flex gap-2">
             <button type="submit" class="btn btn-primary btn-sm">Save</button>
-            <button type="button" phx-click="delete_task" phx-value-id={@editing_task.id} class="btn btn-error btn-sm btn-outline" data-confirm="Delete this task?">Delete</button>
+            <button
+              type="button"
+              phx-click="delete_task"
+              phx-value-id={@editing_task.id}
+              class="btn btn-error btn-sm btn-outline"
+              data-confirm="Delete this task?"
+            >
+              Delete
+            </button>
           </div>
         </form>
       </div>

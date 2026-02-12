@@ -2,7 +2,7 @@ defmodule DayStruct.Store do
   use GenServer
 
   alias DayStruct.Store.State
-  alias DayStruct.Models.{Task, InboxItem, TimeBlock, DayPlan}
+  alias DayStruct.Models.{Task, InboxItem, TimeBlock, DayPlan, Project}
 
   defp data_dir, do: Application.get_env(:day_struct, :store_data_dir, "data")
   defp state_file, do: Path.join(data_dir(), "state.json")
@@ -26,8 +26,13 @@ defmodule DayStruct.Store do
   def get_day_plan(date), do: GenServer.call(__MODULE__, {:get_day_plan, date})
 
   def capture(text), do: GenServer.call(__MODULE__, {:capture, text})
-  def bulk_capture(texts) when is_list(texts), do: GenServer.call(__MODULE__, {:bulk_capture, texts})
-  def process_inbox_item(item_id, area_id, title), do: GenServer.call(__MODULE__, {:process_inbox_item, item_id, area_id, title})
+
+  def bulk_capture(texts) when is_list(texts),
+    do: GenServer.call(__MODULE__, {:bulk_capture, texts})
+
+  def process_inbox_item(item_id, area_id, title, project_id \\ nil),
+    do: GenServer.call(__MODULE__, {:process_inbox_item, item_id, area_id, title, project_id})
+
   def discard_inbox_item(item_id), do: GenServer.call(__MODULE__, {:discard_inbox_item, item_id})
 
   def create_task(attrs), do: GenServer.call(__MODULE__, {:create_task, attrs})
@@ -35,10 +40,20 @@ defmodule DayStruct.Store do
   def move_task(id, x, y), do: GenServer.call(__MODULE__, {:move_task, id, x, y})
   def delete_task(id), do: GenServer.call(__MODULE__, {:delete_task, id})
 
+  def get_projects, do: GenServer.call(__MODULE__, :get_projects)
+  def create_project(attrs), do: GenServer.call(__MODULE__, {:create_project, attrs})
+  def update_project(id, attrs), do: GenServer.call(__MODULE__, {:update_project, id, attrs})
+
   def add_time_block(date, attrs), do: GenServer.call(__MODULE__, {:add_time_block, date, attrs})
-  def update_time_block(date, block_id, attrs), do: GenServer.call(__MODULE__, {:update_time_block, date, block_id, attrs})
-  def remove_time_block(date, block_id), do: GenServer.call(__MODULE__, {:remove_time_block, date, block_id})
-  def complete_time_block(date, block_id), do: GenServer.call(__MODULE__, {:complete_time_block, date, block_id})
+
+  def update_time_block(date, block_id, attrs),
+    do: GenServer.call(__MODULE__, {:update_time_block, date, block_id, attrs})
+
+  def remove_time_block(date, block_id),
+    do: GenServer.call(__MODULE__, {:remove_time_block, date, block_id})
+
+  def complete_time_block(date, block_id),
+    do: GenServer.call(__MODULE__, {:complete_time_block, date, block_id})
 
   def reset! do
     GenServer.call(__MODULE__, :reset)
@@ -91,6 +106,33 @@ defmodule DayStruct.Store do
     {:reply, plan, s}
   end
 
+  def handle_call(:get_projects, _from, %{state: state} = s) do
+    {:reply, state.projects, s}
+  end
+
+  def handle_call({:create_project, attrs}, _from, %{state: state} = s) do
+    project = Project.new(attrs)
+    new_state = %{state | projects: state.projects ++ [project]}
+    {:reply, {:ok, project}, schedule_save(%{s | state: new_state})}
+  end
+
+  def handle_call({:update_project, id, attrs}, _from, %{state: state} = s) do
+    new_projects =
+      Enum.map(state.projects, fn project ->
+        if project.id == id do
+          project
+          |> maybe_put(:name, attrs[:name])
+          |> maybe_put(:status, attrs[:status])
+        else
+          project
+        end
+      end)
+
+    new_state = %{state | projects: new_projects}
+    project = Enum.find(new_state.projects, &(&1.id == id))
+    {:reply, {:ok, project}, schedule_save(%{s | state: new_state})}
+  end
+
   def handle_call({:capture, text}, _from, %{state: state} = s) do
     item = InboxItem.new(text: text)
     new_state = %{state | inbox_items: state.inbox_items ++ [item]}
@@ -103,17 +145,24 @@ defmodule DayStruct.Store do
     {:reply, {:ok, items}, schedule_save(%{s | state: new_state})}
   end
 
-  def handle_call({:process_inbox_item, item_id, area_id, title}, _from, %{state: state} = s) do
+  def handle_call(
+        {:process_inbox_item, item_id, area_id, title, project_id},
+        _from,
+        %{state: state} = s
+      ) do
     case Enum.find(state.inbox_items, &(&1.id == item_id)) do
       nil ->
         {:reply, {:error, :not_found}, s}
 
       _item ->
-        task = Task.new(title: title, area_id: area_id, status: "ready")
-        new_state = %{state |
-          inbox_items: Enum.reject(state.inbox_items, &(&1.id == item_id)),
-          tasks: state.tasks ++ [task]
+        task = Task.new(title: title, area_id: area_id, project_id: project_id, status: "ready")
+
+        new_state = %{
+          state
+          | inbox_items: Enum.reject(state.inbox_items, &(&1.id == item_id)),
+            tasks: state.tasks ++ [task]
         }
+
         {:reply, {:ok, task}, schedule_save(%{s | state: new_state})}
     end
   end
@@ -141,6 +190,7 @@ defmodule DayStruct.Store do
           |> maybe_put(:area_id, attrs[:area_id])
           |> maybe_put(:status, attrs[:status])
           |> maybe_put(:depends_on, attrs[:depends_on])
+          |> maybe_put_if_key(attrs, :project_id)
           |> maybe_put(:x, attrs[:x])
           |> maybe_put(:y, attrs[:y])
           |> Map.put(:updated_at, now)
@@ -189,8 +239,14 @@ defmodule DayStruct.Store do
       Enum.map(plan.blocks, fn block ->
         if block.id == block_id do
           block
-          |> maybe_put(:start_minute, attrs[:start_minute] && TimeBlock.snap_to_grid(attrs[:start_minute]))
-          |> maybe_put(:duration_minutes, attrs[:duration_minutes] && TimeBlock.snap_to_grid(attrs[:duration_minutes]))
+          |> maybe_put(
+            :start_minute,
+            attrs[:start_minute] && TimeBlock.snap_to_grid(attrs[:start_minute])
+          )
+          |> maybe_put(
+            :duration_minutes,
+            attrs[:duration_minutes] && TimeBlock.snap_to_grid(attrs[:duration_minutes])
+          )
           |> maybe_put(:completed, attrs[:completed])
         else
           block
@@ -392,4 +448,11 @@ defmodule DayStruct.Store do
 
   defp maybe_put(struct, _key, nil), do: struct
   defp maybe_put(struct, key, value), do: Map.put(struct, key, value)
+
+  # Sets the key if it exists in the keyword list (even if nil — for clearing optional fields)
+  defp maybe_put_if_key(struct, attrs, key) do
+    if Keyword.has_key?(attrs, key),
+      do: Map.put(struct, key, attrs[key]),
+      else: struct
+  end
 end
