@@ -26,6 +26,7 @@ defmodule DayStruct.Store do
   def get_day_plan(date), do: GenServer.call(__MODULE__, {:get_day_plan, date})
 
   def capture(text), do: GenServer.call(__MODULE__, {:capture, text})
+  def bulk_capture(texts) when is_list(texts), do: GenServer.call(__MODULE__, {:bulk_capture, texts})
   def process_inbox_item(item_id, area_id, title), do: GenServer.call(__MODULE__, {:process_inbox_item, item_id, area_id, title})
   def discard_inbox_item(item_id), do: GenServer.call(__MODULE__, {:discard_inbox_item, item_id})
 
@@ -94,6 +95,12 @@ defmodule DayStruct.Store do
     item = InboxItem.new(text: text)
     new_state = %{state | inbox_items: state.inbox_items ++ [item]}
     {:reply, {:ok, item}, schedule_save(%{s | state: new_state})}
+  end
+
+  def handle_call({:bulk_capture, texts}, _from, %{state: state} = s) do
+    items = Enum.map(texts, fn text -> InboxItem.new(text: text) end)
+    new_state = %{state | inbox_items: state.inbox_items ++ items}
+    {:reply, {:ok, items}, schedule_save(%{s | state: new_state})}
   end
 
   def handle_call({:process_inbox_item, item_id, area_id, title}, _from, %{state: state} = s) do

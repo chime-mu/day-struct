@@ -2,6 +2,7 @@ defmodule DayStructWeb.InboxLive do
   use DayStructWeb, :live_view
 
   alias DayStruct.Store
+  alias DayStruct.BulkImport.Parser
 
   @impl true
   def mount(_params, _session, socket) do
@@ -18,7 +19,10 @@ defmodule DayStructWeb.InboxLive do
      |> assign(:capture_text, "")
      |> assign(:processing_item, nil)
      |> assign(:process_title, "")
-     |> assign(:process_area_id, nil)}
+     |> assign(:process_area_id, nil)
+     |> assign(:bulk_mode, false)
+     |> assign(:bulk_text, "")
+     |> assign(:bulk_preview, [])}
   end
 
   @impl true
@@ -75,6 +79,57 @@ defmodule DayStructWeb.InboxLive do
 
   def handle_event("quick_capture", _params, socket), do: {:noreply, socket}
 
+  # Bulk import events
+
+  def handle_event("toggle_bulk", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:bulk_mode, !socket.assigns.bulk_mode)
+     |> assign(:bulk_text, "")
+     |> assign(:bulk_preview, [])}
+  end
+
+  def handle_event("bulk_parse", %{"bulk_text" => text}, socket) do
+    preview = Parser.parse(text)
+    {:noreply, socket |> assign(:bulk_text, text) |> assign(:bulk_preview, preview)}
+  end
+
+  def handle_event("bulk_toggle_item", %{"index" => index_str}, socket) do
+    index = String.to_integer(index_str)
+
+    preview =
+      socket.assigns.bulk_preview
+      |> Enum.with_index()
+      |> Enum.map(fn {item, i} ->
+        if i == index, do: %{item | selected: !item.selected}, else: item
+      end)
+
+    {:noreply, assign(socket, :bulk_preview, preview)}
+  end
+
+  def handle_event("bulk_import", _params, socket) do
+    texts =
+      socket.assigns.bulk_preview
+      |> Enum.filter(& &1.selected)
+      |> Enum.map(& &1.text)
+
+    case texts do
+      [] ->
+        {:noreply, socket}
+
+      texts ->
+        {:ok, _items} = Store.bulk_capture(texts)
+        count = length(texts)
+
+        {:noreply,
+         socket
+         |> assign(:bulk_mode, false)
+         |> assign(:bulk_text, "")
+         |> assign(:bulk_preview, [])
+         |> put_flash(:info, "Imported #{count} item#{if count != 1, do: "s"}")}
+    end
+  end
+
   @impl true
   def handle_info({:state_updated, state}, socket) do
     {:noreply,
@@ -89,9 +144,66 @@ defmodule DayStructWeb.InboxLive do
     <div class="space-y-6">
       <div class="flex items-center justify-between">
         <h1 class="text-2xl font-bold">Inbox</h1>
-        <.link navigate={~p"/"} class="btn btn-ghost btn-sm">
-          <.icon name="hero-arrow-left" class="size-4" /> Board
-        </.link>
+        <div class="flex gap-2">
+          <button phx-click="toggle_bulk" class={"btn btn-sm #{if @bulk_mode, do: "btn-active", else: "btn-ghost"}"}>
+            <.icon name="hero-document-text" class="size-4" /> Bulk Import
+          </button>
+          <.link navigate={~p"/"} class="btn btn-ghost btn-sm">
+            <.icon name="hero-arrow-left" class="size-4" /> Board
+          </.link>
+        </div>
+      </div>
+
+      <%!-- Bulk import section --%>
+      <div :if={@bulk_mode} class="card bg-base-200 p-4 space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="font-semibold">Bulk Import</h2>
+          <button phx-click="toggle_bulk" class="btn btn-ghost btn-xs">
+            <.icon name="hero-x-mark" class="size-4" />
+          </button>
+        </div>
+
+        <form phx-change="bulk_parse">
+          <textarea
+            name="bulk_text"
+            value={@bulk_text}
+            placeholder="Paste Logseq journal entries here..."
+            class="textarea textarea-bordered w-full h-40 font-mono text-sm"
+            phx-debounce="300"
+          />
+        </form>
+
+        <div :if={@bulk_preview != []} class="space-y-3">
+          <div class="text-sm text-base-content/60">
+            {Enum.count(@bulk_preview, & &1.selected)} of {length(@bulk_preview)} items selected
+          </div>
+
+          <div class="space-y-1 max-h-64 overflow-y-auto">
+            <label
+              :for={{item, index} <- Enum.with_index(@bulk_preview)}
+              class="flex items-start gap-2 p-2 rounded hover:bg-base-300 cursor-pointer"
+            >
+              <input
+                type="checkbox"
+                checked={item.selected}
+                phx-click="bulk_toggle_item"
+                phx-value-index={index}
+                class="checkbox checkbox-sm mt-0.5"
+              />
+              <span class={"text-sm whitespace-pre-wrap #{unless item.selected, do: "line-through opacity-40"}"}>
+                {item.text}
+              </span>
+            </label>
+          </div>
+
+          <button
+            phx-click="bulk_import"
+            class="btn btn-primary btn-sm"
+            disabled={Enum.count(@bulk_preview, & &1.selected) == 0}
+          >
+            Import {Enum.count(@bulk_preview, & &1.selected)} items
+          </button>
+        </div>
       </div>
 
       <%!-- Capture form --%>
@@ -149,7 +261,7 @@ defmodule DayStructWeb.InboxLive do
           class="card bg-base-100 border border-base-300 p-3 flex flex-row items-center justify-between gap-3"
         >
           <div class="flex-1">
-            <p class="font-medium">{item.text}</p>
+            <p class="font-medium whitespace-pre-wrap">{item.text}</p>
             <p class="text-xs text-base-content/40">{format_time(item.created_at)}</p>
           </div>
           <div class="flex gap-1">

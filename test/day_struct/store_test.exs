@@ -41,6 +41,35 @@ defmodule DayStruct.StoreTest do
     end
   end
 
+  describe "bulk_capture/1" do
+    test "adds multiple items to inbox at once" do
+      {:ok, items} = Store.bulk_capture(["First", "Second", "Third"])
+      assert length(items) == 3
+      assert Enum.at(items, 0).text == "First"
+      assert Enum.at(items, 1).text == "Second"
+      assert Enum.at(items, 2).text == "Third"
+
+      inbox = Store.get_inbox_items()
+      assert length(inbox) == 3
+    end
+
+    test "appends to existing inbox items" do
+      Store.capture("Existing")
+      {:ok, items} = Store.bulk_capture(["New one", "New two"])
+      assert length(items) == 2
+
+      inbox = Store.get_inbox_items()
+      assert length(inbox) == 3
+      assert hd(inbox).text == "Existing"
+    end
+
+    test "handles empty list" do
+      {:ok, items} = Store.bulk_capture([])
+      assert items == []
+      assert Store.get_inbox_items() == []
+    end
+  end
+
   describe "process_inbox_item/3" do
     test "converts inbox item to task and removes from inbox" do
       {:ok, item} = Store.capture("Build feature")
