@@ -38,3 +38,6 @@ npm-debug.log
 # App data (JSON state + backups)
 /data/
 
+# Playwright MCP artifacts (screenshots, logs)
+.playwright-mcp/
+
