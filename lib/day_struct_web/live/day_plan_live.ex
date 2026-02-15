@@ -12,9 +12,16 @@ defmodule DayStructWeb.DayPlanLive do
   def mount(params, _session, socket) do
     if connected?(socket), do: Store.subscribe()
 
+    tz_offset =
+      if connected?(socket) do
+        get_connect_params(socket)["tz_offset"] || 0
+      else
+        0
+      end
+
     date =
       case params["date"] do
-        nil -> Date.utc_today() |> Date.to_iso8601()
+        nil -> local_today(tz_offset)
         d -> d
       end
 
@@ -31,7 +38,7 @@ defmodule DayStructWeb.DayPlanLive do
     areas = Enum.sort_by(state.areas, & &1.position)
     areas_map = Map.new(areas, &{&1.id, &1})
 
-    now_minute = now_minute_of_day()
+    now_minute = now_minute_of_day(tz_offset)
 
     socket =
       socket
@@ -48,8 +55,9 @@ defmodule DayStructWeb.DayPlanLive do
       |> assign(:day_end, @day_end)
       |> assign(:pixels_per_minute, @pixels_per_minute)
       |> assign(:now_minute, now_minute)
+      |> assign(:tz_offset, tz_offset)
 
-    if connected?(socket) and is_today?(date) do
+    if connected?(socket) and is_today?(date, tz_offset) do
       :timer.send_interval(60_000, self(), :tick)
     end
 
@@ -174,7 +182,7 @@ defmodule DayStructWeb.DayPlanLive do
   end
 
   def handle_info(:tick, socket) do
-    {:noreply, assign(socket, :now_minute, now_minute_of_day())}
+    {:noreply, assign(socket, :now_minute, now_minute_of_day(socket.assigns.tz_offset))}
   end
 
   defp task_for_block(block, all_tasks) do
@@ -272,8 +280,8 @@ defmodule DayStructWeb.DayPlanLive do
     TimeBlock.format_time(minutes)
   end
 
-  defp is_today?(date) do
-    date == Date.utc_today() |> Date.to_iso8601()
+  defp is_today?(date, tz_offset) do
+    date == local_today(tz_offset)
   end
 
   defp format_date(date_str) do
@@ -283,13 +291,18 @@ defmodule DayStructWeb.DayPlanLive do
     end
   end
 
-  defp now_minute_of_day do
-    now = Time.utc_now()
-    now.hour * 60 + now.minute
+  defp local_today(tz_offset) do
+    DateTime.utc_now() |> DateTime.add(tz_offset * 60) |> DateTime.to_date() |> Date.to_iso8601()
   end
 
-  defp show_now_line?(date, now_minute, day_start, day_end) do
-    is_today?(date) and now_minute >= day_start and now_minute <= day_end
+  defp now_minute_of_day(tz_offset) do
+    now = Time.utc_now()
+    utc_minutes = now.hour * 60 + now.minute
+    rem(utc_minutes + tz_offset + 1440, 1440)
+  end
+
+  defp show_now_line?(date, now_minute, day_start, day_end, tz_offset) do
+    is_today?(date, tz_offset) and now_minute >= day_start and now_minute <= day_end
   end
 
   defp visible_task_ids(block, block_height) do
@@ -316,7 +329,7 @@ defmodule DayStructWeb.DayPlanLive do
           <button phx-click="prev_day" class="btn btn-ghost btn-sm">
             <.icon name="hero-chevron-left" class="size-4" />
           </button>
-          <span class={"font-medium #{if is_today?(@date), do: "text-primary"}"}>
+          <span class={"font-medium #{if is_today?(@date, @tz_offset), do: "text-primary"}"}>
             {format_date(@date)}
           </span>
           <button phx-click="next_day" class="btn btn-ghost btn-sm">
@@ -401,7 +414,7 @@ defmodule DayStructWeb.DayPlanLive do
 
             <%!-- "Now" indicator line --%>
             <div
-              :if={show_now_line?(@date, @now_minute, @day_start, @day_end)}
+              :if={show_now_line?(@date, @now_minute, @day_start, @day_end, @tz_offset)}
               class="absolute left-0 right-0 z-20 flex items-center pointer-events-none"
               style={"top: #{(@now_minute - @day_start) * @pixels_per_minute}px;"}
             >
