@@ -126,3 +126,10 @@
   outline-offset: -2px;
   background-color: oklch(95% 0.02 250 / 0.3);
 }
+
+/* Time block dragover feedback (drop task onto existing block) */
+.time-block.time-block-dragover {
+  outline: 2px dashed oklch(70% 0.15 250);
+  outline-offset: -2px;
+  box-shadow: 0 0 0 4px oklch(70% 0.15 250 / 0.15);
+}

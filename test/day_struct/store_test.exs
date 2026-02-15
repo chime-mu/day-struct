@@ -142,7 +142,7 @@ defmodule DayStruct.StoreTest do
       {:ok, block} =
         Store.add_time_block(date, task_id: task.id, start_minute: 480, duration_minutes: 60)
 
-      assert block.task_id == task.id
+      assert block.task_ids == [task.id]
 
       updated_task = Store.get_task(task.id)
       assert updated_task.status == "active"

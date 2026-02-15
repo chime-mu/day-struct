@@ -55,6 +55,15 @@ defmodule DayStruct.Store do
   def complete_time_block(date, block_id),
     do: GenServer.call(__MODULE__, {:complete_time_block, date, block_id})
 
+  def add_task_to_block(date, block_id, task_id),
+    do: GenServer.call(__MODULE__, {:add_task_to_block, date, block_id, task_id})
+
+  def remove_task_from_block(date, block_id, task_id),
+    do: GenServer.call(__MODULE__, {:remove_task_from_block, date, block_id, task_id})
+
+  def complete_task_in_block(date, block_id, task_id),
+    do: GenServer.call(__MODULE__, {:complete_task_in_block, date, block_id, task_id})
+
   def reset! do
     GenServer.call(__MODULE__, :reset)
   end
@@ -257,8 +266,8 @@ defmodule DayStruct.Store do
     new_plan = %{plan | blocks: plan.blocks ++ [block]}
     new_state = %{state | day_plans: Map.put(state.day_plans, date, new_plan)}
 
-    # Mark task as active when scheduled
-    new_state = mark_task_active(new_state, attrs[:task_id])
+    # Mark task(s) as active when scheduled
+    new_state = Enum.reduce(block.task_ids, new_state, &mark_task_active(&2, &1))
 
     {:reply, {:ok, block}, schedule_save(%{s | state: new_state})}
   end
@@ -278,7 +287,6 @@ defmodule DayStruct.Store do
             :duration_minutes,
             attrs[:duration_minutes] && TimeBlock.snap_to_grid(attrs[:duration_minutes])
           )
-          |> maybe_put(:completed, attrs[:completed])
         else
           block
         end
@@ -296,10 +304,10 @@ defmodule DayStruct.Store do
     new_plan = %{plan | blocks: new_blocks}
     new_state = %{state | day_plans: Map.put(state.day_plans, date, new_plan)}
 
-    # Return task to ready if removed from schedule
+    # Return each task to ready if removed from all schedules
     new_state =
       if block do
-        revert_task_if_unscheduled(new_state, block.task_id)
+        Enum.reduce(block.task_ids, new_state, &revert_task_if_unscheduled(&2, &1))
       else
         new_state
       end
@@ -313,23 +321,105 @@ defmodule DayStruct.Store do
 
     new_blocks =
       Enum.map(plan.blocks, fn b ->
-        if b.id == block_id, do: %{b | completed: true}, else: b
+        if b.id == block_id, do: %{b | completed_task_ids: b.task_ids}, else: b
       end)
 
     new_plan = %{plan | blocks: new_blocks}
     new_state = %{state | day_plans: Map.put(state.day_plans, date, new_plan)}
 
-    # Check if all blocks for this task are complete → mark task done
+    # Check if all blocks for each task are complete → mark task done
     new_state =
       if block do
-        all_blocks_for_task =
-          Enum.filter(new_blocks, &(&1.task_id == block.task_id))
+        Enum.reduce(block.task_ids, new_state, fn task_id, acc ->
+          if task_all_blocks_completed?(acc, task_id) do
+            mark_task_done(acc, task_id)
+          else
+            acc
+          end
+        end)
+      else
+        new_state
+      end
 
-        if Enum.all?(all_blocks_for_task, & &1.completed) do
-          mark_task_done(new_state, block.task_id)
+    {:reply, :ok, schedule_save(%{s | state: new_state})}
+  end
+
+  def handle_call({:add_task_to_block, date, block_id, task_id}, _from, %{state: state} = s) do
+    plan = Map.get(state.day_plans, date, DayPlan.new(date: date))
+
+    new_blocks =
+      Enum.map(plan.blocks, fn block ->
+        if block.id == block_id and task_id not in block.task_ids do
+          %{block | task_ids: block.task_ids ++ [task_id]}
         else
-          new_state
+          block
         end
+      end)
+
+    new_plan = %{plan | blocks: new_blocks}
+    new_state = %{state | day_plans: Map.put(state.day_plans, date, new_plan)}
+    new_state = mark_task_active(new_state, task_id)
+
+    {:reply, :ok, schedule_save(%{s | state: new_state})}
+  end
+
+  def handle_call({:remove_task_from_block, date, block_id, task_id}, _from, %{state: state} = s) do
+    plan = Map.get(state.day_plans, date, DayPlan.new(date: date))
+    block = Enum.find(plan.blocks, &(&1.id == block_id))
+
+    new_state =
+      if block do
+        new_task_ids = List.delete(block.task_ids, task_id)
+        new_completed = List.delete(block.completed_task_ids, task_id)
+
+        if new_task_ids == [] do
+          # Last task removed — remove the entire block
+          new_blocks = Enum.reject(plan.blocks, &(&1.id == block_id))
+          new_plan = %{plan | blocks: new_blocks}
+          new_state = %{state | day_plans: Map.put(state.day_plans, date, new_plan)}
+          revert_task_if_unscheduled(new_state, task_id)
+        else
+          new_blocks =
+            Enum.map(plan.blocks, fn b ->
+              if b.id == block_id,
+                do: %{b | task_ids: new_task_ids, completed_task_ids: new_completed},
+                else: b
+            end)
+
+          new_plan = %{plan | blocks: new_blocks}
+          new_state = %{state | day_plans: Map.put(state.day_plans, date, new_plan)}
+          revert_task_if_unscheduled(new_state, task_id)
+        end
+      else
+        state
+      end
+
+    {:reply, :ok, schedule_save(%{s | state: new_state})}
+  end
+
+  def handle_call(
+        {:complete_task_in_block, date, block_id, task_id},
+        _from,
+        %{state: state} = s
+      ) do
+    plan = Map.get(state.day_plans, date, DayPlan.new(date: date))
+
+    new_blocks =
+      Enum.map(plan.blocks, fn block ->
+        if block.id == block_id and task_id not in block.completed_task_ids do
+          %{block | completed_task_ids: block.completed_task_ids ++ [task_id]}
+        else
+          block
+        end
+      end)
+
+    new_plan = %{plan | blocks: new_blocks}
+    new_state = %{state | day_plans: Map.put(state.day_plans, date, new_plan)}
+
+    # Check if all blocks for this task are now complete
+    new_state =
+      if task_all_blocks_completed?(new_state, task_id) do
+        mark_task_done(new_state, task_id)
       else
         new_state
       end
@@ -458,7 +548,7 @@ defmodule DayStruct.Store do
       state.day_plans
       |> Map.values()
       |> Enum.any?(fn plan ->
-        Enum.any?(plan.blocks, &(&1.task_id == task_id))
+        Enum.any?(plan.blocks, &(task_id in &1.task_ids))
       end)
 
     if still_scheduled? do
@@ -475,6 +565,16 @@ defmodule DayStruct.Store do
 
       %{state | tasks: new_tasks}
     end
+  end
+
+  defp task_all_blocks_completed?(state, task_id) do
+    all_blocks =
+      state.day_plans
+      |> Map.values()
+      |> Enum.flat_map(& &1.blocks)
+      |> Enum.filter(&(task_id in &1.task_ids))
+
+    all_blocks != [] and Enum.all?(all_blocks, &(task_id in &1.completed_task_ids))
   end
 
   defp validate_depends_on(%{project_id: nil} = task, _all_tasks) do

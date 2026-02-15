@@ -20,7 +20,7 @@ defmodule DayStructWeb.DayPlanLive do
 
     state = Store.get_state()
     plan = Map.get(state.day_plans, date, %DayStruct.Models.DayPlan{date: date, blocks: []})
-    scheduled_task_ids = Enum.map(plan.blocks, & &1.task_id) |> MapSet.new()
+    scheduled_task_ids = Enum.flat_map(plan.blocks, & &1.task_ids) |> MapSet.new()
 
     available_tasks =
       state.tasks
@@ -105,6 +105,33 @@ defmodule DayStructWeb.DayPlanLive do
     {:noreply, socket}
   end
 
+  def handle_event(
+        "add_task_to_block",
+        %{"block_id" => block_id, "task_id" => task_id},
+        socket
+      ) do
+    Store.add_task_to_block(socket.assigns.date, block_id, task_id)
+    {:noreply, socket}
+  end
+
+  def handle_event(
+        "remove_task_from_block",
+        %{"block_id" => block_id, "task_id" => task_id},
+        socket
+      ) do
+    Store.remove_task_from_block(socket.assigns.date, block_id, task_id)
+    {:noreply, socket}
+  end
+
+  def handle_event(
+        "complete_task_in_block",
+        %{"block_id" => block_id, "task_id" => task_id},
+        socket
+      ) do
+    Store.complete_task_in_block(socket.assigns.date, block_id, task_id)
+    {:noreply, socket}
+  end
+
   def handle_event("prev_day", _params, socket) do
     date = Date.from_iso8601!(socket.assigns.date) |> Date.add(-1) |> Date.to_iso8601()
     {:noreply, push_navigate(socket, to: ~p"/day/#{date}")}
@@ -126,7 +153,7 @@ defmodule DayStructWeb.DayPlanLive do
   def handle_info({:state_updated, state}, socket) do
     date = socket.assigns.date
     plan = Map.get(state.day_plans, date, %DayStruct.Models.DayPlan{date: date, blocks: []})
-    scheduled_task_ids = Enum.map(plan.blocks, & &1.task_id) |> MapSet.new()
+    scheduled_task_ids = Enum.flat_map(plan.blocks, & &1.task_ids) |> MapSet.new()
 
     available_tasks =
       state.tasks
@@ -151,7 +178,11 @@ defmodule DayStructWeb.DayPlanLive do
   end
 
   defp task_for_block(block, all_tasks) do
-    Enum.find(all_tasks, &(&1.id == block.task_id))
+    Enum.find(all_tasks, &(&1.id == hd(block.task_ids)))
+  end
+
+  defp find_task(task_id, all_tasks) do
+    Enum.find(all_tasks, &(&1.id == task_id))
   end
 
   defp area_for_task(task, areas_map) when not is_nil(task) do
@@ -161,11 +192,27 @@ defmodule DayStructWeb.DayPlanLive do
   defp area_for_task(_, _), do: nil
 
   defp block_color(block, all_tasks, areas_map) do
+    if length(block.task_ids) > 1 do
+      multi_block_color(block)
+    else
+      single_block_color(block, all_tasks, areas_map)
+    end
+  end
+
+  defp multi_block_color(block) do
+    if TimeBlock.completed?(block) do
+      "bg-green-100 border-green-400 dark:bg-green-950/40 dark:border-green-600"
+    else
+      "bg-base-200 border-base-300"
+    end
+  end
+
+  defp single_block_color(block, all_tasks, areas_map) do
     task = task_for_block(block, all_tasks)
     area = area_for_task(task, areas_map)
 
     cond do
-      block.completed ->
+      TimeBlock.completed?(block) ->
         "bg-green-100 border-green-400 dark:bg-green-950/40 dark:border-green-600"
 
       area && area.color == "blue" ->
@@ -192,6 +239,16 @@ defmodule DayStructWeb.DayPlanLive do
       "rose" -> "border-l-rose-400"
       "amber" -> "border-l-amber-400"
       _ -> "border-l-base-300"
+    end
+  end
+
+  defp area_dot_color(color) do
+    case color do
+      "blue" -> "bg-blue-400"
+      "green" -> "bg-green-400"
+      "rose" -> "bg-rose-400"
+      "amber" -> "bg-amber-400"
+      _ -> "bg-base-400"
     end
   end
 
@@ -233,6 +290,20 @@ defmodule DayStructWeb.DayPlanLive do
 
   defp show_now_line?(date, now_minute, day_start, day_end) do
     is_today?(date) and now_minute >= day_start and now_minute <= day_end
+  end
+
+  defp visible_task_ids(block, block_height) do
+    # Estimate row height: ~28px per task row, ~24px for header
+    available = block_height - 24
+    max_rows = max(trunc(available / 28), 1)
+
+    if length(block.task_ids) <= max_rows do
+      {block.task_ids, 0}
+    else
+      visible = Enum.take(block.task_ids, max_rows)
+      overflow = length(block.task_ids) - max_rows
+      {visible, overflow}
+    end
   end
 
   @impl true
@@ -353,61 +424,137 @@ defmodule DayStructWeb.DayPlanLive do
             </div>
 
             <%!-- Time blocks --%>
-            <div
-              :for={block <- @plan.blocks}
-              id={"block-#{block.id}"}
-              data-block-id={block.id}
-              data-start-minute={block.start_minute}
-              data-duration-minutes={block.duration_minutes}
-              class={[
-                "time-block absolute left-12 right-2 rounded border-l-4 px-3 py-1 cursor-grab active:cursor-grabbing",
-                "group flex flex-col justify-between",
-                block_color(block, @all_tasks, @areas_map),
-                block.completed && "opacity-60"
-              ]}
-              style={"top: #{(block.start_minute - @day_start) * @pixels_per_minute}px; height: #{block.duration_minutes * @pixels_per_minute}px; min-height: 24px;"}
-            >
-              <div class="flex items-start justify-between gap-1 min-h-0">
-                <div class="truncate">
-                  <div class="font-medium text-sm truncate">
-                    {(task_for_block(block, @all_tasks) && task_for_block(block, @all_tasks).title) ||
-                      "Unknown task"}
-                  </div>
-                  <div class="text-xs text-base-content/50">
-                    {TimeBlock.format_time(block.start_minute)} - {TimeBlock.format_time(
-                      TimeBlock.end_minute(block)
-                    )}
-                  </div>
-                </div>
-                <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                  <button
-                    :if={!block.completed}
-                    phx-click="complete_block"
-                    phx-value-block_id={block.id}
-                    class="btn btn-xs btn-ghost text-success"
-                    title="Complete"
-                  >
-                    <.icon name="hero-check" class="size-3" />
-                  </button>
-                  <button
-                    phx-click="remove_block"
-                    phx-value-block_id={block.id}
-                    class="btn btn-xs btn-ghost text-error"
-                    title="Remove"
-                  >
-                    <.icon name="hero-x-mark" class="size-3" />
-                  </button>
-                </div>
-              </div>
-
-              <%!-- Resize handle --%>
+            <%= for block <- @plan.blocks do %>
+              <% block_height = block.duration_minutes * @pixels_per_minute %>
               <div
-                :if={!block.completed}
-                class="resize-handle absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-base-content/10 rounded-b"
+                id={"block-#{block.id}"}
                 data-block-id={block.id}
+                data-start-minute={block.start_minute}
+                data-duration-minutes={block.duration_minutes}
+                class={[
+                  "time-block absolute left-12 right-2 rounded border-l-4 px-3 py-1 cursor-grab active:cursor-grabbing",
+                  "group flex flex-col",
+                  block_color(block, @all_tasks, @areas_map),
+                  TimeBlock.completed?(block) && "opacity-60"
+                ]}
+                style={"top: #{(block.start_minute - @day_start) * @pixels_per_minute}px; height: #{block_height}px; min-height: 24px;"}
               >
+                <%= if length(block.task_ids) == 1 do %>
+                  <%!-- Single-task block (unchanged layout) --%>
+                  <div class="flex items-start justify-between gap-1 min-h-0 flex-1">
+                    <div class="truncate">
+                      <div class="font-medium text-sm truncate">
+                        {(task_for_block(block, @all_tasks) &&
+                            task_for_block(block, @all_tasks).title) ||
+                          "Unknown task"}
+                      </div>
+                      <div class="text-xs text-base-content/50">
+                        {TimeBlock.format_time(block.start_minute)} - {TimeBlock.format_time(
+                          TimeBlock.end_minute(block)
+                        )}
+                      </div>
+                    </div>
+                    <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button
+                        :if={!TimeBlock.completed?(block)}
+                        phx-click="complete_block"
+                        phx-value-block_id={block.id}
+                        class="btn btn-xs btn-ghost text-success"
+                        title="Complete"
+                      >
+                        <.icon name="hero-check" class="size-3" />
+                      </button>
+                      <button
+                        phx-click="remove_block"
+                        phx-value-block_id={block.id}
+                        class="btn btn-xs btn-ghost text-error"
+                        title="Remove"
+                      >
+                        <.icon name="hero-x-mark" class="size-3" />
+                      </button>
+                    </div>
+                  </div>
+                <% else %>
+                  <%!-- Multi-task block --%>
+                  <% {visible_ids, overflow} = visible_task_ids(block, block_height) %>
+                  <%!-- Block header --%>
+                  <div class="flex items-center justify-between gap-1 mb-0.5">
+                    <div class="text-xs text-base-content/50 font-medium">
+                      {TimeBlock.format_time(block.start_minute)} - {TimeBlock.format_time(
+                        TimeBlock.end_minute(block)
+                      )}
+                    </div>
+                    <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      <button
+                        phx-click="remove_block"
+                        phx-value-block_id={block.id}
+                        class="btn btn-xs btn-ghost text-error"
+                        title="Remove all"
+                      >
+                        <.icon name="hero-x-mark" class="size-3" />
+                      </button>
+                    </div>
+                  </div>
+                  <%!-- Task rows --%>
+                  <div class="flex-1 min-h-0 overflow-hidden space-y-px">
+                    <div
+                      :for={task_id <- visible_ids}
+                      class={[
+                        "flex items-center gap-1.5 text-sm py-0.5",
+                        task_id in block.completed_task_ids && "opacity-50"
+                      ]}
+                    >
+                      <% task = find_task(task_id, @all_tasks) %>
+                      <% area = task && area_for_task(task, @areas_map) %>
+                      <div class={"w-2 h-2 rounded-full shrink-0 #{area_dot_color(area && area.color)}"}>
+                      </div>
+                      <button
+                        :if={task_id not in block.completed_task_ids}
+                        phx-click="complete_task_in_block"
+                        phx-value-block_id={block.id}
+                        phx-value-task_id={task_id}
+                        class="btn btn-xs btn-ghost btn-circle text-success p-0 min-h-0 h-4 w-4 shrink-0"
+                        title="Complete task"
+                      >
+                        <.icon name="hero-check" class="size-2.5" />
+                      </button>
+                      <span
+                        :if={task_id in block.completed_task_ids}
+                        class="inline-flex items-center justify-center h-4 w-4 shrink-0 text-success/50"
+                      >
+                        <.icon name="hero-check" class="size-2.5" />
+                      </span>
+                      <span class={[
+                        "truncate flex-1 text-xs",
+                        task_id in block.completed_task_ids && "line-through"
+                      ]}>
+                        {(task && task.title) || "Unknown task"}
+                      </span>
+                      <button
+                        phx-click="remove_task_from_block"
+                        phx-value-block_id={block.id}
+                        phx-value-task_id={task_id}
+                        class="btn btn-xs btn-ghost btn-circle text-error p-0 min-h-0 h-4 w-4 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Remove from block"
+                      >
+                        <.icon name="hero-x-mark" class="size-2.5" />
+                      </button>
+                    </div>
+                    <div :if={overflow > 0} class="text-xs text-base-content/40 pl-3.5">
+                      +{overflow} more
+                    </div>
+                  </div>
+                <% end %>
+
+                <%!-- Resize handle --%>
+                <div
+                  :if={!TimeBlock.completed?(block)}
+                  class="resize-handle absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-base-content/10 rounded-b"
+                  data-block-id={block.id}
+                >
+                </div>
               </div>
-            </div>
+            <% end %>
           </div>
         </div>
       </div>

@@ -22,20 +22,41 @@ const Timeline = {
     this.timeline.addEventListener("dragover", (e) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
-      this.timeline.classList.add("timeline-dragover");
+
+      // Check if hovering over a time-block
+      const blockEl = e.target.closest(".time-block");
+      this.clearBlockDragover();
+      if (blockEl) {
+        blockEl.classList.add("time-block-dragover");
+      } else {
+        this.timeline.classList.add("timeline-dragover");
+      }
     });
 
     this.timeline.addEventListener("dragleave", (e) => {
       if (!this.timeline.contains(e.relatedTarget)) {
         this.timeline.classList.remove("timeline-dragover");
+        this.clearBlockDragover();
       }
     });
 
     this.timeline.addEventListener("drop", (e) => {
       e.preventDefault();
       this.timeline.classList.remove("timeline-dragover");
+      this.clearBlockDragover();
       const taskId = e.dataTransfer.getData("text/plain");
       if (!taskId) return;
+
+      // Check if dropped on an existing time block
+      const blockEl = e.target.closest(".time-block");
+      if (blockEl) {
+        const blockId = blockEl.dataset.blockId;
+        this.pushEvent("add_task_to_block", {
+          block_id: blockId,
+          task_id: taskId,
+        });
+        return;
+      }
 
       const inner = this.timeline.querySelector(":scope > div");
       const rect = inner.getBoundingClientRect();
@@ -51,6 +72,12 @@ const Timeline = {
 
   updated() {
     this.setupSidebarDrag();
+  },
+
+  clearBlockDragover() {
+    this.timeline
+      .querySelectorAll(".time-block-dragover")
+      .forEach((el) => el.classList.remove("time-block-dragover"));
   },
 
   setupSidebarDrag() {
