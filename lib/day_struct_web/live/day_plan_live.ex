@@ -29,14 +29,10 @@ defmodule DayStructWeb.DayPlanLive do
     plan = Map.get(state.day_plans, date, %DayStruct.Models.DayPlan{date: date, blocks: []})
     scheduled_task_ids = Enum.flat_map(plan.blocks, & &1.task_ids) |> MapSet.new()
 
-    carryover = carryover_tasks(state, date, scheduled_task_ids)
-    carryover_ids = MapSet.new(carryover, fn {task, _date} -> task.id end)
-
     available_tasks =
       state.tasks
       |> Enum.filter(fn t ->
-        Task.schedulable?(t, state.tasks) and not MapSet.member?(scheduled_task_ids, t.id) and
-          not MapSet.member?(carryover_ids, t.id)
+        Task.schedulable?(t, state.tasks) and not MapSet.member?(scheduled_task_ids, t.id)
       end)
 
     areas = Enum.sort_by(state.areas, & &1.position)
@@ -61,7 +57,6 @@ defmodule DayStructWeb.DayPlanLive do
       |> assign(:now_minute, now_minute)
       |> assign(:tz_offset, tz_offset)
       |> assign(:expanded_blocks, MapSet.new())
-      |> assign(:carryover_tasks, carryover)
 
     if connected?(socket) and is_today?(date, tz_offset) do
       :timer.send_interval(60_000, self(), :tick)
@@ -180,14 +175,10 @@ defmodule DayStructWeb.DayPlanLive do
     plan = Map.get(state.day_plans, date, %DayStruct.Models.DayPlan{date: date, blocks: []})
     scheduled_task_ids = Enum.flat_map(plan.blocks, & &1.task_ids) |> MapSet.new()
 
-    carryover = carryover_tasks(state, date, scheduled_task_ids)
-    carryover_ids = MapSet.new(carryover, fn {task, _date} -> task.id end)
-
     available_tasks =
       state.tasks
       |> Enum.filter(fn t ->
-        Task.schedulable?(t, state.tasks) and not MapSet.member?(scheduled_task_ids, t.id) and
-          not MapSet.member?(carryover_ids, t.id)
+        Task.schedulable?(t, state.tasks) and not MapSet.member?(scheduled_task_ids, t.id)
       end)
 
     areas_map = Map.new(state.areas, &{&1.id, &1})
@@ -203,8 +194,7 @@ defmodule DayStructWeb.DayPlanLive do
      |> assign(:areas, Enum.sort_by(state.areas, & &1.position))
      |> assign(:areas_map, areas_map)
      |> assign(:inbox_count, length(state.inbox_items))
-     |> assign(:expanded_blocks, expanded)
-     |> assign(:carryover_tasks, carryover)}
+     |> assign(:expanded_blocks, expanded)}
   end
 
   def handle_info(:tick, socket) do
@@ -353,36 +343,6 @@ defmodule DayStructWeb.DayPlanLive do
     24 + length(block.task_ids) * 28 + 8
   end
 
-  defp carryover_tasks(state, current_date, scheduled_task_ids) do
-    tasks_map = Map.new(state.tasks, &{&1.id, &1})
-
-    state.day_plans
-    |> Enum.filter(fn {date, _plan} -> date < current_date end)
-    |> Enum.sort_by(fn {date, _plan} -> date end, :desc)
-    |> Enum.flat_map(fn {date, plan} ->
-      Enum.flat_map(plan.blocks, fn block ->
-        block.task_ids
-        |> Enum.reject(&(&1 in block.completed_task_ids))
-        |> Enum.map(fn task_id -> {task_id, date} end)
-      end)
-    end)
-    |> Enum.uniq_by(fn {task_id, _date} -> task_id end)
-    |> Enum.reject(fn {task_id, _date} -> MapSet.member?(scheduled_task_ids, task_id) end)
-    |> Enum.flat_map(fn {task_id, date} ->
-      case Map.get(tasks_map, task_id) do
-        %{status: status} = task when status in ["ready", "active"] -> [{task, date}]
-        _ -> []
-      end
-    end)
-  end
-
-  defp format_short_date(date_str) do
-    case Date.from_iso8601(date_str) do
-      {:ok, date} -> Calendar.strftime(date, "%b %-d")
-      _ -> date_str
-    end
-  end
-
   @impl true
   def render(assigns) do
     ~H"""
@@ -405,45 +365,11 @@ defmodule DayStructWeb.DayPlanLive do
       <div class="flex gap-4" style="min-height: 70vh;">
         <%!-- Sidebar: available tasks --%>
         <div class="w-56 shrink-0 space-y-2">
-          <%!-- Carried Over section --%>
-          <div :if={@carryover_tasks != []} class="space-y-2 mb-4">
-            <h3 class="text-sm font-semibold text-warning uppercase tracking-wide flex items-center gap-1.5">
-              <.icon name="hero-arrow-path" class="size-3.5" /> Carried Over
-            </h3>
-            <div
-              :for={{task, source_date} <- @carryover_tasks}
-              id={"sidebar-task-#{task.id}"}
-              draggable="true"
-              data-task-id={task.id}
-              class={[
-                "sidebar-task cursor-grab active:cursor-grabbing",
-                "rounded border-l-4 bg-warning/5 border border-warning/30 px-3 py-2 text-sm shadow-sm",
-                "hover:shadow-md transition-shadow",
-                sidebar_area_color(
-                  area_for_task(task, @areas_map) && area_for_task(task, @areas_map).color
-                )
-              ]}
-            >
-              <div class="font-medium truncate">{task.title}</div>
-              <div class="flex items-center gap-1 mt-0.5">
-                <span :if={area_for_task(task, @areas_map)} class="text-xs text-base-content/50">
-                  {area_for_task(task, @areas_map).name}
-                </span>
-                <span :if={area_for_task(task, @areas_map)} class="text-xs text-base-content/30">
-                  &middot;
-                </span>
-                <span class="text-xs text-warning/70">
-                  from {format_short_date(source_date)}
-                </span>
-              </div>
-            </div>
-          </div>
-
           <h3 class="text-sm font-semibold text-base-content/60 uppercase tracking-wide">
             Available Tasks
           </h3>
           <div
-            :if={@available_tasks == [] and @carryover_tasks == []}
+            :if={@available_tasks == []}
             class="text-center py-8 space-y-3"
           >
             <.icon name="hero-clipboard-document-list" class="size-10 mx-auto text-base-content/20" />
