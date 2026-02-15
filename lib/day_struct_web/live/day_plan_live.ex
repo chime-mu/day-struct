@@ -29,10 +29,14 @@ defmodule DayStructWeb.DayPlanLive do
     plan = Map.get(state.day_plans, date, %DayStruct.Models.DayPlan{date: date, blocks: []})
     scheduled_task_ids = Enum.flat_map(plan.blocks, & &1.task_ids) |> MapSet.new()
 
+    carryover = carryover_tasks(state, date, scheduled_task_ids)
+    carryover_ids = MapSet.new(carryover, fn {task, _date} -> task.id end)
+
     available_tasks =
       state.tasks
       |> Enum.filter(fn t ->
-        Task.schedulable?(t, state.tasks) and not MapSet.member?(scheduled_task_ids, t.id)
+        Task.schedulable?(t, state.tasks) and not MapSet.member?(scheduled_task_ids, t.id) and
+          not MapSet.member?(carryover_ids, t.id)
       end)
 
     areas = Enum.sort_by(state.areas, & &1.position)
@@ -56,6 +60,8 @@ defmodule DayStructWeb.DayPlanLive do
       |> assign(:pixels_per_minute, @pixels_per_minute)
       |> assign(:now_minute, now_minute)
       |> assign(:tz_offset, tz_offset)
+      |> assign(:expanded_blocks, MapSet.new())
+      |> assign(:carryover_tasks, carryover)
 
     if connected?(socket) and is_today?(date, tz_offset) do
       :timer.send_interval(60_000, self(), :tick)
@@ -157,19 +163,37 @@ defmodule DayStructWeb.DayPlanLive do
 
   def handle_event("quick_capture", _params, socket), do: {:noreply, socket}
 
+  def handle_event("toggle_expand_block", %{"block-id" => block_id}, socket) do
+    expanded = socket.assigns.expanded_blocks
+
+    expanded =
+      if MapSet.member?(expanded, block_id),
+        do: MapSet.delete(expanded, block_id),
+        else: MapSet.put(expanded, block_id)
+
+    {:noreply, assign(socket, :expanded_blocks, expanded)}
+  end
+
   @impl true
   def handle_info({:state_updated, state}, socket) do
     date = socket.assigns.date
     plan = Map.get(state.day_plans, date, %DayStruct.Models.DayPlan{date: date, blocks: []})
     scheduled_task_ids = Enum.flat_map(plan.blocks, & &1.task_ids) |> MapSet.new()
 
+    carryover = carryover_tasks(state, date, scheduled_task_ids)
+    carryover_ids = MapSet.new(carryover, fn {task, _date} -> task.id end)
+
     available_tasks =
       state.tasks
       |> Enum.filter(fn t ->
-        Task.schedulable?(t, state.tasks) and not MapSet.member?(scheduled_task_ids, t.id)
+        Task.schedulable?(t, state.tasks) and not MapSet.member?(scheduled_task_ids, t.id) and
+          not MapSet.member?(carryover_ids, t.id)
       end)
 
     areas_map = Map.new(state.areas, &{&1.id, &1})
+
+    block_ids = MapSet.new(plan.blocks, & &1.id)
+    expanded = MapSet.intersection(socket.assigns.expanded_blocks, block_ids)
 
     {:noreply,
      socket
@@ -178,7 +202,9 @@ defmodule DayStructWeb.DayPlanLive do
      |> assign(:available_tasks, available_tasks)
      |> assign(:areas, Enum.sort_by(state.areas, & &1.position))
      |> assign(:areas_map, areas_map)
-     |> assign(:inbox_count, length(state.inbox_items))}
+     |> assign(:inbox_count, length(state.inbox_items))
+     |> assign(:expanded_blocks, expanded)
+     |> assign(:carryover_tasks, carryover)}
   end
 
   def handle_info(:tick, socket) do
@@ -305,17 +331,55 @@ defmodule DayStructWeb.DayPlanLive do
     is_today?(date, tz_offset) and now_minute >= day_start and now_minute <= day_end
   end
 
-  defp visible_task_ids(block, block_height) do
-    # Estimate row height: ~28px per task row, ~24px for header
-    available = block_height - 24
-    max_rows = max(trunc(available / 28), 1)
-
-    if length(block.task_ids) <= max_rows do
+  defp visible_task_ids(block, block_height, expanded?) do
+    if expanded? do
       {block.task_ids, 0}
     else
-      visible = Enum.take(block.task_ids, max_rows)
-      overflow = length(block.task_ids) - max_rows
-      {visible, overflow}
+      # Estimate row height: ~28px per task row, ~24px for header
+      available = block_height - 24
+      max_rows = max(trunc(available / 28), 1)
+
+      if length(block.task_ids) <= max_rows do
+        {block.task_ids, 0}
+      else
+        visible = Enum.take(block.task_ids, max_rows)
+        overflow = length(block.task_ids) - max_rows
+        {visible, overflow}
+      end
+    end
+  end
+
+  defp expanded_block_height(block) do
+    24 + length(block.task_ids) * 28 + 8
+  end
+
+  defp carryover_tasks(state, current_date, scheduled_task_ids) do
+    tasks_map = Map.new(state.tasks, &{&1.id, &1})
+
+    state.day_plans
+    |> Enum.filter(fn {date, _plan} -> date < current_date end)
+    |> Enum.sort_by(fn {date, _plan} -> date end, :desc)
+    |> Enum.flat_map(fn {date, plan} ->
+      Enum.flat_map(plan.blocks, fn block ->
+        block.task_ids
+        |> Enum.reject(&(&1 in block.completed_task_ids))
+        |> Enum.map(fn task_id -> {task_id, date} end)
+      end)
+    end)
+    |> Enum.uniq_by(fn {task_id, _date} -> task_id end)
+    |> Enum.reject(fn {task_id, _date} -> MapSet.member?(scheduled_task_ids, task_id) end)
+    |> Enum.flat_map(fn {task_id, date} ->
+      case Map.get(tasks_map, task_id) do
+        %{status: status} = task when status in ["ready", "active"] -> [{task, date}]
+        _ -> []
+      end
+    end)
+  end
+
+  defp format_short_date(date_str) do
+    case Date.from_iso8601(date_str) do
+      {:ok, date} -> Calendar.strftime(date, "%b %-d")
+      _ -> date_str
     end
   end
 
@@ -341,10 +405,47 @@ defmodule DayStructWeb.DayPlanLive do
       <div class="flex gap-4" style="min-height: 70vh;">
         <%!-- Sidebar: available tasks --%>
         <div class="w-56 shrink-0 space-y-2">
+          <%!-- Carried Over section --%>
+          <div :if={@carryover_tasks != []} class="space-y-2 mb-4">
+            <h3 class="text-sm font-semibold text-warning uppercase tracking-wide flex items-center gap-1.5">
+              <.icon name="hero-arrow-path" class="size-3.5" /> Carried Over
+            </h3>
+            <div
+              :for={{task, source_date} <- @carryover_tasks}
+              id={"sidebar-task-#{task.id}"}
+              draggable="true"
+              data-task-id={task.id}
+              class={[
+                "sidebar-task cursor-grab active:cursor-grabbing",
+                "rounded border-l-4 bg-warning/5 border border-warning/30 px-3 py-2 text-sm shadow-sm",
+                "hover:shadow-md transition-shadow",
+                sidebar_area_color(
+                  area_for_task(task, @areas_map) && area_for_task(task, @areas_map).color
+                )
+              ]}
+            >
+              <div class="font-medium truncate">{task.title}</div>
+              <div class="flex items-center gap-1 mt-0.5">
+                <span :if={area_for_task(task, @areas_map)} class="text-xs text-base-content/50">
+                  {area_for_task(task, @areas_map).name}
+                </span>
+                <span :if={area_for_task(task, @areas_map)} class="text-xs text-base-content/30">
+                  &middot;
+                </span>
+                <span class="text-xs text-warning/70">
+                  from {format_short_date(source_date)}
+                </span>
+              </div>
+            </div>
+          </div>
+
           <h3 class="text-sm font-semibold text-base-content/60 uppercase tracking-wide">
             Available Tasks
           </h3>
-          <div :if={@available_tasks == []} class="text-center py-8 space-y-3">
+          <div
+            :if={@available_tasks == [] and @carryover_tasks == []}
+            class="text-center py-8 space-y-3"
+          >
             <.icon name="hero-clipboard-document-list" class="size-10 mx-auto text-base-content/20" />
             <p class="text-sm text-base-content/40">No tasks to schedule</p>
             <p class="text-xs text-base-content/30">
@@ -439,18 +540,24 @@ defmodule DayStructWeb.DayPlanLive do
             <%!-- Time blocks --%>
             <%= for block <- @plan.blocks do %>
               <% block_height = block.duration_minutes * @pixels_per_minute %>
+              <% expanded? = MapSet.member?(@expanded_blocks, block.id) %>
+              <% display_height =
+                if expanded?, do: max(block_height, expanded_block_height(block)), else: block_height %>
               <div
                 id={"block-#{block.id}"}
                 data-block-id={block.id}
                 data-start-minute={block.start_minute}
                 data-duration-minutes={block.duration_minutes}
+                data-expanded={if expanded?, do: "true", else: "false"}
                 class={[
-                  "time-block absolute left-12 right-2 rounded border-l-4 px-3 py-1 cursor-grab active:cursor-grabbing",
+                  "time-block absolute left-12 right-2 rounded border-l-4 px-3 py-1",
+                  !expanded? && "cursor-grab active:cursor-grabbing",
                   "group flex flex-col",
+                  expanded? && "z-30 shadow-lg ring-1 ring-base-content/10",
                   block_color(block, @all_tasks, @areas_map),
                   TimeBlock.completed?(block) && "opacity-60"
                 ]}
-                style={"top: #{(block.start_minute - @day_start) * @pixels_per_minute}px; height: #{block_height}px; min-height: 24px;"}
+                style={"top: #{(block.start_minute - @day_start) * @pixels_per_minute}px; height: #{display_height}px; min-height: 24px;"}
               >
                 <%= if length(block.task_ids) == 1 do %>
                   <%!-- Single-task block (unchanged layout) --%>
@@ -489,7 +596,7 @@ defmodule DayStructWeb.DayPlanLive do
                   </div>
                 <% else %>
                   <%!-- Multi-task block --%>
-                  <% {visible_ids, overflow} = visible_task_ids(block, block_height) %>
+                  <% {visible_ids, overflow} = visible_task_ids(block, block_height, expanded?) %>
                   <%!-- Block header --%>
                   <div class="flex items-center justify-between gap-1 mb-0.5">
                     <div class="text-xs text-base-content/50 font-medium">
@@ -509,7 +616,7 @@ defmodule DayStructWeb.DayPlanLive do
                     </div>
                   </div>
                   <%!-- Task rows --%>
-                  <div class="flex-1 min-h-0 overflow-hidden space-y-px">
+                  <div class={["flex-1 min-h-0 space-y-px", !expanded? && "overflow-hidden"]}>
                     <div
                       :for={task_id <- visible_ids}
                       class={[
@@ -553,9 +660,22 @@ defmodule DayStructWeb.DayPlanLive do
                         <.icon name="hero-x-mark" class="size-2.5" />
                       </button>
                     </div>
-                    <div :if={overflow > 0} class="text-xs text-base-content/40 pl-3.5">
+                    <button
+                      :if={overflow > 0}
+                      phx-click="toggle_expand_block"
+                      phx-value-block-id={block.id}
+                      class="text-xs text-base-content/40 hover:text-primary pl-3.5 cursor-pointer"
+                    >
                       +{overflow} more
-                    </div>
+                    </button>
+                    <button
+                      :if={expanded?}
+                      phx-click="toggle_expand_block"
+                      phx-value-block-id={block.id}
+                      class="text-xs text-primary/60 hover:text-primary pl-3.5 cursor-pointer"
+                    >
+                      Show less
+                    </button>
                   </div>
                 <% end %>
 

@@ -114,6 +114,9 @@ const Timeline = {
     // Don't drag if clicking buttons
     if (e.target.closest("button")) return;
 
+    // Don't drag expanded blocks
+    if (block.dataset.expanded === "true") return;
+
     this.draggingBlock = block;
     this.startY = e.clientY;
     this.startMinute = parseInt(block.dataset.startMinute);
