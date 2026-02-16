@@ -257,7 +257,7 @@ defmodule DayStructWeb.AreaLive do
             "rounded-lg border bg-base-100 shadow-sm px-3 py-2 max-w-48 text-sm",
             "hover:shadow-md transition-shadow",
             Task.blocked?(task, @all_tasks) && "opacity-50 cursor-not-allowed",
-            task.status == "done" && "opacity-40 line-through"
+            task.status == "done" && "opacity-75 border-green-400 bg-green-50 dark:bg-green-950/30"
           ]}
           style={"left: #{task.x * 100}%; top: #{task.y * 100}%; transform: translate(-50%, -50%);"}
           phx-click="edit_task"
