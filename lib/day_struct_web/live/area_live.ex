@@ -86,13 +86,23 @@ defmodule DayStructWeb.AreaLive do
           id -> id
         end
 
+      area_id = params["area_id"] || task.area_id
+
+      {project_id, depends_on} =
+        if area_id != task.area_id do
+          {nil, []}
+        else
+          {project_id, depends_on}
+        end
+
       {:ok, _updated} =
         Store.update_task(task.id,
           title: params["title"],
           description: params["description"],
           status: params["status"],
           depends_on: depends_on,
-          project_id: project_id
+          project_id: project_id,
+          area_id: area_id
         )
 
       {:noreply, assign(socket, :editing_task, nil)}
@@ -302,6 +312,16 @@ defmodule DayStructWeb.AreaLive do
               selected={s == @editing_task.status}
             >
               {status_label(s)}
+            </option>
+          </select>
+
+          <select name="area_id" class="select select-bordered select-sm w-full">
+            <option
+              :for={area <- @areas}
+              value={area.id}
+              selected={area.id == @editing_task.area_id}
+            >
+              {area.name}{if(area.id == @area.id, do: " (current)", else: "")}
             </option>
           </select>
 
